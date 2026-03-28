@@ -1,0 +1,39 @@
+---
+alwaysApply: true
+---
+
+description: Rules for Prisma ORM schema design, queries, and migrations in LawyerAI
+globs: ["prisma/schema.prisma", "src/services/**/*.ts", "src/lib/prisma.ts"]
+alwaysApply: false
+
+---
+
+# Prisma ORM Best Practices
+
+- **Schema Design**:
+  - Use PascalCase for model names and camelCase for field names.
+  - Always include `createdAt` and `updatedAt` DateTime fields with `@default(now())` and `@updatedAt`.
+  - **Soft Delete**: Implement `deletedAt DateTime?` for all primary entities to prevent accidental data loss.
+  - Use `@id` for primary keys (prefer `String @id @default(cuid())` for scalability).
+  - Define explicit relationships with `@relation` and meaningful names.
+  - Keep schemas normalized; use Enums (mapped in TS) for static categories.
+
+- **Query Guidelines**:
+  - **Type-Safety**: Always use the generated Prisma Client. Never use raw SQL unless absolutely necessary for performance.
+  - **Avoid N+1**: Judiciously use `select` and `include`. Only fetch the fields you need to reduce payload.
+  - **Pagination**: Always implement pagination using `take` and `skip` for list queries.
+  - **Transactions**: Use `$transaction` for multi-step operations that must be atomic (e.g., creating a post and updating user reputation).
+
+- **Error Handling**:
+  - Catch Prisma-specific errors: `PrismaClientKnownRequestError`, `PrismaClientValidationError`.
+  - Map database errors to user-friendly messages in the Service layer.
+  - Never expose raw database error strings to the frontend.
+
+- **Safety & Migrations**:
+  - Use descriptive migration names (e.g., `20240328_add_legal_case_model`).
+  - **Destructive Actions**: NEVER run `prisma migrate reset` in production.
+  - AI is forbidden from running destructive commands without explicit user consent via `PRISMA_USER_CONSENT_FOR_DANGEROUS_AI_ACTION`.
+
+- **Performance**:
+  - Use `index` (`@@index`) on fields frequently used in `where` clauses (e.g., `userId`, `slug`).
+  - Use `fulltext` search indexes for legal document searching if the provider supports it.
