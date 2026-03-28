@@ -1,5 +1,9 @@
 import "dotenv/config";
-import { defineConfig, env } from "prisma/config";
+import { defineConfig } from "prisma/config";
+
+/** Placeholder for `prisma generate` when DATABASE_URL is unset (install/CI). Use a real URL in .env for migrate. */
+const databaseUrl =
+  process.env.DATABASE_URL ?? "mysql://127.0.0.1:3306/prisma_generate_placeholder";
 
 export default defineConfig({
   schema: "prisma/schema.prisma",
@@ -7,7 +11,6 @@ export default defineConfig({
     path: "prisma/migrations",
   },
   datasource: {
-    url: env("DATABASE_URL"),
-    // shadowDatabaseUrl: env("SHADOW_DATABASE_URL"), // bật khi migrate dev cần DB shadow
+    url: databaseUrl,
   },
 });
