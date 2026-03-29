@@ -7,6 +7,36 @@ import type { ProfilePatchInput } from "../validators/profile.schema.js";
 import { ensureUniqueUsername } from "./auth.service.js";
 import { type PublicUser, toPublicUser } from "./user.mapper.js";
 
+export type PublicProfileByUsername = {
+  userId: string;
+  username: string;
+  displayName: string | null;
+  avatarUrl: string | null;
+  bio: string | null;
+};
+
+export async function getPublicProfileByUsername(
+  rawUsername: string,
+): Promise<PublicProfileByUsername | null> {
+  const username = rawUsername.trim();
+  if (!username) return null;
+
+  const prisma = getPrisma();
+  const profile = await prisma.profile.findUnique({
+    where: { username },
+    include: { user: true },
+  });
+  if (!profile || profile.deletedAt || profile.user.deletedAt) return null;
+
+  return {
+    userId: profile.userId,
+    username: profile.username,
+    displayName: profile.displayName,
+    avatarUrl: profile.avatarUrl,
+    bio: profile.bio,
+  };
+}
+
 export async function getUserMe(userId: string): Promise<PublicUser | null> {
   const prisma = getPrisma();
   const user = await prisma.user.findFirst({

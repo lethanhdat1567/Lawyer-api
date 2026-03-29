@@ -18,4 +18,5 @@ export const ERROR_MESSAGES: Record<ErrorCodeType, string> = {
   [ErrorCode.INVALID_OR_EXPIRED_TOKEN]: "Invalid or expired token",
   [ErrorCode.OAUTH_ACCOUNT_HINT]:
     "This account uses Google sign-in. Use Sign in with Google.",
+  [ErrorCode.HUB_SLUG_TAKEN]: "A Hub post with this slug already exists",
 };

@@ -13,6 +13,7 @@ export const ErrorCode = {
   AUTH_IDENTITY_CONFLICT: "AUTH_IDENTITY_CONFLICT",
   INVALID_OR_EXPIRED_TOKEN: "INVALID_OR_EXPIRED_TOKEN",
   OAUTH_ACCOUNT_HINT: "OAUTH_ACCOUNT_HINT",
+  HUB_SLUG_TAKEN: "HUB_SLUG_TAKEN",
 } as const;
 
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode];

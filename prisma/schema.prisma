@@ -49,6 +49,7 @@ enum BlogPostStatus {
 enum ReputationReason {
   HUB_REPLY_HELPFUL
   BLOG_QUALITY
+  BLOG_COMMENT_HELPFUL
   MOD_ADJUSTMENT
   ADMIN_BONUS
   ADMIN_PENALTY
@@ -91,6 +92,11 @@ model User {
   hubPosts                 HubPost[]                  @relation("HubPostAuthor")
   hubComments              HubComment[]               @relation("HubCommentAuthor")
   blogPosts                BlogPost[]                 @relation("BlogPostAuthor")
+  blogComments             BlogComment[]              @relation("BlogCommentAuthor")
+  blogPostLikes            BlogPostLike[]
+  hubCommentLikes          HubCommentLike[]
+  blogCommentLikes         BlogCommentLike[]
+  savedBlogPosts           SavedBlogPost[]
   assistantMessageRatings  AssistantMessageRating[]
   reputationLedgers        ReputationLedger[]
   userContributionScore    UserContributionScore?
@@ -306,11 +312,25 @@ model HubComment {
   parent        HubComment?           @relation("CommentThread", fields: [parentId], references: [id], onDelete: SetNull)
   replies       HubComment[]          @relation("CommentThread")
   author        User                  @relation("HubCommentAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  likes         HubCommentLike[]
   reputationRef ReputationLedger[]    @relation("LedgerHubComment")
 
   @@index([postId, parentId])
   @@index([authorId])
   @@map("hub_comments")
+}
+
+model HubCommentLike {
+  userId       String   @map("user_id")
+  hubCommentId String   @map("hub_comment_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  hubComment HubComment @relation(fields: [hubCommentId], references: [id], onDelete: Cascade)
+
+  @@id([userId, hubCommentId])
+  @@index([hubCommentId])
+  @@map("hub_comment_likes")
 }
 
 model HubOversightVersion {
@@ -338,6 +358,7 @@ model BlogPost {
   authorId            String         @map("author_id")
   slug                String         @unique
   title               String
+  thumbnailUrl        String?        @map("thumbnail_url") @db.VarChar(2048)
   excerpt             String?        @db.Text
   body                String         @db.LongText
   status              BlogPostStatus @default(DRAFT)
@@ -353,6 +374,9 @@ model BlogPost {
   author     User                @relation("BlogPostAuthor", fields: [authorId], references: [id], onDelete: Cascade)
   verifiedBy User?               @relation("BlogPostVerifiedBy", fields: [verifiedByUserId], references: [id], onDelete: SetNull)
   tags       BlogPostTag[]
+  comments   BlogComment[]
+  likes      BlogPostLike[]
+  savedBy    SavedBlogPost[]
   reputationRef ReputationLedger[] @relation("LedgerBlogPost")
 
   @@index([slug])
@@ -386,20 +410,84 @@ model BlogPostTag {
   @@map("blog_post_tags")
 }
 
+model BlogComment {
+  id         String    @id @default(cuid())
+  blogPostId String    @map("blog_post_id")
+  parentId   String?   @map("parent_id")
+  authorId   String    @map("author_id")
+  body       String    @db.Text
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+  deletedAt  DateTime? @map("deleted_at")
+
+  blogPost BlogPost    @relation(fields: [blogPostId], references: [id], onDelete: Cascade)
+  parent   BlogComment? @relation("BlogCommentThread", fields: [parentId], references: [id], onDelete: SetNull)
+  replies  BlogComment[] @relation("BlogCommentThread")
+  author        User               @relation("BlogCommentAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  likes         BlogCommentLike[]
+  reputationRef ReputationLedger[] @relation("LedgerBlogComment")
+
+  @@index([blogPostId, parentId])
+  @@index([authorId])
+  @@map("blog_comments")
+}
+
+model BlogCommentLike {
+  userId         String   @map("user_id")
+  blogCommentId  String   @map("blog_comment_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  blogComment BlogComment @relation(fields: [blogCommentId], references: [id], onDelete: Cascade)
+
+  @@id([userId, blogCommentId])
+  @@index([blogCommentId])
+  @@map("blog_comment_likes")
+}
+
+model BlogPostLike {
+  userId     String   @map("user_id")
+  blogPostId String   @map("blog_post_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  blogPost BlogPost @relation(fields: [blogPostId], references: [id], onDelete: Cascade)
+
+  @@id([userId, blogPostId])
+  @@index([blogPostId])
+  @@map("blog_post_likes")
+}
+
+model SavedBlogPost {
+  userId     String   @map("user_id")
+  blogPostId String   @map("blog_post_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  blogPost BlogPost @relation(fields: [blogPostId], references: [id], onDelete: Cascade)
+
+  @@id([userId, blogPostId])
+  @@index([blogPostId])
+  @@index([userId, createdAt])
+  @@map("saved_blog_posts")
+}
+
 // --- Reputation & leaderboard ---
 
 model ReputationLedger {
-  id               String           @id @default(cuid())
-  userId           String           @map("user_id")
-  delta            Int
-  reason           ReputationReason
-  refHubCommentId  String?          @map("ref_hub_comment_id")
-  refBlogPostId    String?          @map("ref_blog_post_id")
-  createdAt        DateTime         @default(now()) @map("created_at")
+  id                 String           @id @default(cuid())
+  userId             String           @map("user_id")
+  delta              Int
+  reason             ReputationReason
+  refHubCommentId    String?          @map("ref_hub_comment_id")
+  refBlogPostId      String?          @map("ref_blog_post_id")
+  refBlogCommentId   String?          @map("ref_blog_comment_id")
+  createdAt          DateTime         @default(now()) @map("created_at")
 
-  user          User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  refHubComment HubComment? @relation("LedgerHubComment", fields: [refHubCommentId], references: [id], onDelete: SetNull)
-  refBlogPost   BlogPost?   @relation("LedgerBlogPost", fields: [refBlogPostId], references: [id], onDelete: SetNull)
+  user            User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  refHubComment   HubComment?  @relation("LedgerHubComment", fields: [refHubCommentId], references: [id], onDelete: SetNull)
+  refBlogPost     BlogPost?    @relation("LedgerBlogPost", fields: [refBlogPostId], references: [id], onDelete: SetNull)
+  refBlogComment  BlogComment? @relation("LedgerBlogComment", fields: [refBlogCommentId], references: [id], onDelete: SetNull)
 
   @@index([userId, createdAt])
   @@index([reason])
