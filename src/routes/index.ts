@@ -15,6 +15,7 @@ import { uploadRouter } from "./upload.route.js";
 import { authenticate, requireRole } from "../middlewares/auth.js";
 import { createAuthRateLimiter } from "../middlewares/rateLimit.js";
 import { UserRole } from "../../generated/prisma/enums.js";
+import chatAIRouter from "./chat-ai.route.js";
 
 export const apiV1Router = Router();
 
@@ -28,26 +29,27 @@ apiV1Router.use("/hub/me", authenticate, hubMeRouter);
 apiV1Router.use("/blog", blogPublicRouter);
 apiV1Router.use("/blog/me", authenticate, blogMeRouter);
 apiV1Router.use(
-  "/admin/hub",
-  authenticate,
-  requireRole(UserRole.ADMIN),
-  hubAdminRouter,
+    "/admin/hub",
+    authenticate,
+    requireRole(UserRole.ADMIN),
+    hubAdminRouter,
 );
 apiV1Router.use(
-  "/admin/blog",
-  authenticate,
-  requireRole(UserRole.ADMIN),
-  blogAdminRouter,
+    "/admin/blog",
+    authenticate,
+    requireRole(UserRole.ADMIN),
+    blogAdminRouter,
 );
 apiV1Router.use(
-  "/admin/reputation",
-  authenticate,
-  requireRole(UserRole.ADMIN),
-  reputationAdminRouter,
+    "/admin/reputation",
+    authenticate,
+    requireRole(UserRole.ADMIN),
+    reputationAdminRouter,
 );
 apiV1Router.use(
-  "/admin",
-  authenticate,
-  requireRole(UserRole.ADMIN),
-  adminMiscRouter,
+    "/admin",
+    authenticate,
+    requireRole(UserRole.ADMIN),
+    adminMiscRouter,
 );
+apiV1Router.use("/chat-ai", chatAIRouter);

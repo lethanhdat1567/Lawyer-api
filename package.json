@@ -19,8 +19,11 @@
         "node": ">=20"
     },
     "dependencies": {
+        "@ai-sdk/google": "^3.0.53",
         "@prisma/adapter-mariadb": "^7.0.0",
         "@prisma/client": "^7.0.0",
+        "@supabase/supabase-js": "^2.100.1",
+        "ai": "^6.0.141",
         "bcrypt": "^6.0.0",
         "cheerio": "^1.2.0",
         "cors": "^2.8.5",

@@ -1,86 +1,94 @@
-import { CheerioCrawler, Dataset } from "crawlee";
+import { CheerioCrawler } from "crawlee";
+import { syncLawWithVercelSDK } from "../services/law-sync.service.js";
 
-export const runTestCrawler = async () => {
-    console.log("--- Bắt đầu cào Bộ luật Dân sự (Cấu trúc chi tiết) ---");
+export interface LawArticle {
+    id?: string;
+    law_title: string | null;
+    chapter: string | null;
+    article_title: string | null;
+    content: string;
+    url: string | null;
+    embedding?: number[] | null;
+    created_at?: string;
+}
+
+export const runLawyerCrawler = async (): Promise<void> => {
+    const CRAWLER_URL =
+        "https://thuvienphapluat.vn/van-ban/Quyen-dan-su/Bo-luat-dan-su-2015-296215.aspx";
 
     const crawler = new CheerioCrawler({
-        // Chỉ cào đúng 1 trang này, tắt enqueueLinks
-        async requestHandler({ $, request, log }) {
-            const lawTitle = $("h1").text().trim() || $("title").text().trim();
-            const articlesMap = new Map(); // Dùng Map để chống trùng
+        async requestHandler({ $, log }) {
+            const lawTitle: string = $("h1").text().trim() || "Bộ luật Dân sự";
+            const results: LawArticle[] = [];
 
-            let currentChapter = "Phần mở đầu";
-            let lastArticleKey = "";
+            let currentChapter: string = "Phần mở đầu";
+            let currentArticle: LawArticle | null = null;
 
-            const contentContainer = $(
-                "#vcl-content, .content1, .content-html",
-            ).first();
+            const contentNodes = $("#vcl-content, .content1").find("p");
 
-            contentContainer.find("p, div, a, b, span").each((_, el) => {
+            contentNodes.each((_, el) => {
                 const node = $(el);
-                const text = node
-                    .text()
-                    .replace(/\r?\n|\r/g, " ")
-                    .replace(/\s+/g, " ")
-                    .trim();
-                const nameAttr = node.attr("name") || "";
+                const text: string = node.text().replace(/\s+/g, " ").trim();
+                if (!text) return;
 
-                if (!text && !nameAttr) return;
+                const isChapter: boolean =
+                    node.find('a[name^="chuong"]').length > 0 ||
+                    /^Chương\s+[IVXLM0-9]+/i.test(text) ||
+                    /^Phần\s+thứ/i.test(text);
 
-                // 1. Nhận diện Chương
-                if (
-                    nameAttr.includes("chuong") ||
-                    /^CHƯƠNG\s+[IVXLM0-9]+/i.test(text)
-                ) {
+                if (isChapter) {
                     currentChapter = text;
                     return;
                 }
 
-                // 2. Nhận diện Điều (Regex chặt chẽ hơn để tránh bắt nhầm)
-                const articleMatch = text.match(/^(Điều\s+\d+\.)/i);
-                if (articleMatch) {
-                    const title = text;
-                    lastArticleKey = articleMatch[1]; // Key là "Điều 2."
+                const isArticleHeader: boolean =
+                    node.find('a[name^="dieu_"]').length > 0 ||
+                    /^Điều\s+\d+\./i.test(text);
 
-                    if (!articlesMap.has(lastArticleKey)) {
-                        articlesMap.set(lastArticleKey, {
-                            lawTitle,
-                            chapter: currentChapter,
-                            articleTitle: title,
-                            content: "",
-                        });
-                    }
+                if (isArticleHeader) {
+                    if (currentArticle) results.push(currentArticle);
+                    currentArticle = {
+                        law_title: lawTitle,
+                        chapter: currentChapter,
+                        article_title: text,
+                        content: "",
+                        url: CRAWLER_URL,
+                    };
                     return;
                 }
 
-                // 3. Gom nội dung (Nếu đã có tiêu đề Điều trước đó)
-                if (lastArticleKey && articlesMap.has(lastArticleKey)) {
-                    const article = articlesMap.get(lastArticleKey);
-                    // Tránh cộng dồn chính cái tiêu đề vào content
-                    if (!text.includes(article.articleTitle)) {
-                        article.content += text + " ";
-                    }
+                if (currentArticle && text !== currentArticle.article_title) {
+                    currentArticle.content += text + "\n";
                 }
             });
 
-            // Chuyển Map thành mảng để lưu
-            const finalData = Array.from(articlesMap.values()).filter(
-                (a) => a.content.length > 0,
-            );
+            if (currentArticle) results.push(currentArticle);
+
+            // Clean & Filter
+            const finalData: LawArticle[] = results
+                .map((item) => ({
+                    ...item,
+                    content: item.content.trim(),
+                }))
+                .filter((item) => item.content.length > 10);
 
             if (finalData.length > 0) {
-                await Dataset.pushData(finalData);
                 log.info(
-                    `Đã lọc trùng và lưu ${finalData.length} điều sạch vào JSON.`,
+                    `--- [CRAWL DONE] Đã lấy ${finalData.length} điều. Bắt đầu Sync... ---`,
                 );
+
+                await syncLawWithVercelSDK(finalData);
+
+                log.info(
+                    `--- [COMPLETED] Quá trình cào và lưu DB đã hoàn tất ---`,
+                );
+            } else {
+                log.error("--- [FAILED] Không tìm thấy dữ liệu phù hợp ---");
             }
         },
-
-        // Bảo vệ: Chỉ chạy đúng 1 URL được cung cấp
         maxRequestsPerCrawl: 1,
     });
 
-    await crawler.run([
-        "https://thuvienphapluat.vn/van-ban/Quyen-dan-su/Bo-luat-dan-su-2015-296215.aspx",
-    ]);
+    // Chạy crawler
+    await crawler.run([CRAWLER_URL]);
 };

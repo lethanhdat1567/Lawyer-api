@@ -1,16 +1,17 @@
+import "dotenv/config";
 import { CronJob } from "cron";
-import { runTestCrawler } from "./schedules/crawler.js";
+import { runLawyerCrawler } from "./schedules/crawler.js";
 
 new CronJob(
-    "*/50 * * * * *",
-    async function () {
-        try {
-            await runTestCrawler();
-        } catch (error) {
-            console.log(error);
-        }
-    },
-    null,
-    true,
-    "Asia/Ho_Chi_Minh",
+  "*/50 * * * * *",
+  async function () {
+    try {
+      await runLawyerCrawler();
+    } catch (error) {
+      console.log(error);
+    }
+  },
+  null,
+  true,
+  "Asia/Ho_Chi_Minh",
 );
