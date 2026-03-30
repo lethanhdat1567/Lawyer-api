@@ -3,8 +3,8 @@ name: prisma-cli
 description: Prisma CLI commands reference covering all available commands, options, and usage patterns. Use when running Prisma CLI commands, setting up projects, generating client, running migrations, or managing databases. Triggers on "prisma init", "prisma generate", "prisma migrate", "prisma db", "prisma studio".
 license: MIT
 metadata:
-  author: prisma
-  version: "7.0.0"
+    author: prisma
+    version: "7.0.0"
 ---
 
 # Prisma CLI Reference
@@ -188,14 +188,14 @@ import "dotenv/config";
 import { defineConfig, env } from "prisma/config";
 
 export default defineConfig({
-  schema: "prisma/schema.prisma",
-  migrations: {
-    path: "prisma/migrations",
-    seed: "tsx prisma/seed.ts",
-  },
-  datasource: {
-    url: env("DATABASE_URL"),
-  },
+    schema: "prisma/schema.prisma",
+    migrations: {
+        path: "prisma/migrations",
+        seed: "tsx prisma/seed.ts",
+    },
+    datasource: {
+        url: env("DATABASE_URL"),
+    },
 });
 ```
 

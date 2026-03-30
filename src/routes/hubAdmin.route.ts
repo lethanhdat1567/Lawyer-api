@@ -1,5 +1,5 @@
 import { Router } from "express";
-import * as hubAdminController from "../controllers/hubAdmin.controller.js";
+import hubAdminController from "../controllers/hubAdmin.controller.js";
 
 export const hubAdminRouter = Router();
 

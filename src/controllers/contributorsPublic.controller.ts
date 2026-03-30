@@ -1,17 +1,19 @@
 import type { RequestHandler } from "express";
-import { listPublicContributorsLeaderboard } from "../services/reputation.service.js";
+import contributorsPublicService from "../services/reputation/contributorsPublic.service.js";
 import { contributorsLeaderboardQuerySchema } from "../validators/reputation.schema.js";
 
-export const getContributorsLeaderboard: RequestHandler = async (
-  req,
-  res,
-  next,
-) => {
-  try {
-    const q = contributorsLeaderboardQuerySchema.parse(req.query);
-    const data = await listPublicContributorsLeaderboard({ limit: q.limit });
-    res.success(data);
-  } catch (e) {
-    next(e);
-  }
-};
+class ContributorsPublicController {
+    getContributorsLeaderboard: RequestHandler = async (req, res, next) => {
+        try {
+            const q = contributorsLeaderboardQuerySchema.parse(req.query);
+            const data = await contributorsPublicService.listLeaderboard({
+                limit: q.limit,
+            });
+            res.success(data);
+        } catch (e) {
+            next(e);
+        }
+    };
+}
+
+export default new ContributorsPublicController();

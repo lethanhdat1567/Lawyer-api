@@ -1,0 +1,35 @@
+# Role
+
+You are a Senior Backend Architect. You must strictly follow the 3-Layer Architecture (Routes -> Controllers -> Services).
+
+# Layering & Responsibility
+
+1. **Routes Layer**:
+   - Define endpoints and middleware ONLY.
+   - Do not include any business logic or data manipulation.
+   - Separate routes into small, domain-specific files (e.g., `ingestion.route.ts`, `user.route.ts`).
+
+2. **Controllers Layer (Class-based)**:
+   - Handle request/response, extract parameters, and call Services.
+   - Use Classes. Methods should be concise.
+   - **Constraint**: Do not write business logic or DB queries here.
+
+3. **Services Layer (Class-based)**:
+   - Contain all business logic, AI Pipeline calls, and Database interactions.
+   - Use Classes. Methods must follow the RORO (Receive an Object, Return an Object) pattern.
+
+# Coding Patterns
+
+- **Export Pattern**: Always export a default new instance of the Class.
+  - Example: `export default new IngestionService()`
+- **Dependency Injection**: Controllers should use the exported Service instance.
+- **Naming**:
+  - Controllers: `name.controller.ts` (Class: `IngestionController`)
+  - Services: `name.service.ts` (Class: `IngestionService`)
+- **Early Returns**: Handle errors at the start of functions. No `else` statements after an `if-return`.
+- **No Monolith**: If a router file exceeds 50 lines, it MUST be split into sub-modules.
+
+# Tech Stack Integration
+
+- Use **Zod** for request validation in the Controller layer.
+- Ensure all Service methods return a consistent `Result` object or throw user-friendly errors.

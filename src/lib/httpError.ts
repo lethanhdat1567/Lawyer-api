@@ -1,12 +1,12 @@
 import { ErrorCode } from "../constants/errorCodes.js";
 
 export class HttpError extends Error {
-  constructor(
-    public statusCode: number,
-    message: string,
-    public code: string = ErrorCode.HTTP_ERROR,
-  ) {
-    super(message);
-    this.name = "HttpError";
-  }
+    constructor(
+        public statusCode: number,
+        message: string,
+        public code: string = ErrorCode.HTTP_ERROR,
+    ) {
+        super(message);
+        this.name = "HttpError";
+    }
 }

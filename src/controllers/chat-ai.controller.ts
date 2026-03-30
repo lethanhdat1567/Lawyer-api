@@ -11,3 +11,9 @@ export const handleChat: RequestHandler = async (req, res, next) => {
         next(e);
     }
 };
+
+class ChatAiController {
+    handleChat: RequestHandler = handleChat;
+}
+
+export default new ChatAiController();

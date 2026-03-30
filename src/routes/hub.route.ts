@@ -1,5 +1,5 @@
 import { Router } from "express";
-import * as hubPublicController from "../controllers/hubPublic.controller.js";
+import hubPublicController from "../controllers/hubPublic.controller.js";
 
 export const hubPublicRouter = Router();
 

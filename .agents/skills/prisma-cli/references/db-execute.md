@@ -17,12 +17,12 @@ prisma db execute [options]
 
 ## Options
 
-| Option | Description |
-|--------|-------------|
-| `--file` | Path to a file containing the script to execute |
-| `--stdin` | Use terminal standard input as the script |
-| `--url` | Override the datasource URL from the Prisma config file |
-| `--config` | Custom path to your Prisma config file |
+| Option     | Description                                             |
+| ---------- | ------------------------------------------------------- |
+| `--file`   | Path to a file containing the script to execute         |
+| `--stdin`  | Use terminal standard input as the script               |
+| `--url`    | Override the datasource URL from the Prisma config file |
+| `--config` | Custom path to your Prisma config file                  |
 
 ## Examples
 
@@ -56,10 +56,10 @@ Uses `datasource` from `prisma.config.ts`:
 
 ```typescript
 export default defineConfig({
-  datasource: {
-    url: env('DATABASE_URL'),
-  },
-})
+    datasource: {
+        url: env("DATABASE_URL"),
+    },
+});
 ```
 
 ## Use Cases

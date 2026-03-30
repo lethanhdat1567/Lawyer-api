@@ -10,6 +10,8 @@
         "schedule": "tsx watch src/schedule.ts",
         "build": "tsc",
         "start": "node dist/src/server.js",
+        "format": "prettier --write .",
+        "format:check": "prettier --check .",
         "prisma:generate": "prisma generate",
         "prisma:migrate": "prisma migrate dev",
         "prisma:studio": "prisma studio",
@@ -47,6 +49,7 @@
         "@types/multer": "^2.1.0",
         "@types/node": "^22.10.0",
         "@types/nodemailer": "^6.4.17",
+        "prettier": "^3.8.1",
         "prisma": "^7.0.0",
         "tsx": "^4.19.2",
         "typescript": "^5.7.2"

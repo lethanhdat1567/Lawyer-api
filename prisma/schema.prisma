@@ -73,6 +73,19 @@ enum AuthProvider {
   FIREBASE
 }
 
+enum TaskType {
+  HTML_CLEANING
+  CLASSIFICATION
+  METADATA_EXTRACT
+  EMBEDDING
+}
+
+enum CrawlLogStatus {
+  SUCCESS
+  FAILED
+  NO_CHANGE
+}
+
 // --- Core: users & verification ---
 
 model User {
@@ -572,4 +585,51 @@ model LegalDocumentChunk {
   @@unique([sourceId, chunkIndex])
   @@index([sourceId])
   @@map("legal_document_chunks")
+}
+
+model Prompt {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  content   String   @db.LongText
+  taskType  TaskType @map("task_type")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  taskConfigs TaskConfig[]
+
+  @@index([taskType])
+  @@map("prompts")
+}
+
+model TaskConfig {
+  id              String   @id @default(cuid())
+  taskType        TaskType @unique @map("task_type")
+  modelName       String   @map("model_name")
+  defaultPromptId String   @map("default_prompt_id")
+  isActive        Boolean  @default(true) @map("is_active")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  defaultPrompt Prompt @relation(fields: [defaultPromptId], references: [id], onDelete: Restrict)
+
+  @@index([isActive])
+  @@index([defaultPromptId])
+  @@map("task_configs")
+}
+
+model CrawlLog {
+  id          String         @id @default(cuid())
+  url         String
+  status      CrawlLogStatus
+  contentHash String?        @map("content_hash")
+  fullTextHash String?       @map("full_text_hash")
+  errorMessage String?       @map("error_message") @db.Text
+  startedAt   DateTime?      @map("started_at")
+  finishedAt  DateTime?      @map("finished_at")
+  createdAt   DateTime       @default(now()) @map("created_at")
+  updatedAt   DateTime       @updatedAt @map("updated_at")
+
+  @@index([url, createdAt])
+  @@index([status])
+  @@map("crawl_logs")
 }
