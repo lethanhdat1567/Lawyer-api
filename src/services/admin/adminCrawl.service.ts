@@ -1,296 +1,160 @@
-import { generateText } from "ai";
-import { google } from "@ai-sdk/google";
-import { CheerioCrawler } from "crawlee";
-import { createHash } from "node:crypto";
-import { CrawlLogStatus } from "../../../generated/prisma/enums.js";
-import { ErrorCode } from "../../constants/errorCodes.js";
-import { HttpStatus } from "../../constants/httpStatus.js";
-import { HttpError } from "../../lib/httpError.js";
-import { getPrisma } from "../../lib/prisma.js";
-import {
-    type CrawlApproveInput,
-    type CrawlApproveResponse,
-    type CrawlDraftInput,
-    type CrawlDraftMetadata,
-    type CrawlDraftResponse,
-    type PipelineConfig,
-    type TaskExecutionConfig,
-    type TaskType,
-} from "../../types/pipeline.js";
-import adminPipelineService from "./adminPipeline.service.js";
-
-const NOISE_SELECTORS = [
-    "script",
-    "style",
-    "noscript",
-    "svg",
-    "iframe",
-    "nav",
-    "header",
-    "footer",
-    ".ads",
-    ".advertisement",
-    ".social-share",
-    ".breadcrumb",
-];
+import { CheerioCrawler, CheerioRoot } from "crawlee";
+import { LawArticleInsert } from "../../types/crawl.js";
+import { LawParserHelper } from "../../lib/lawParser.js";
+import aiService from "../ai.service.js";
+import { getSupabase } from "../../lib/supabase.js";
 
 class AdminCrawlService {
-    private sha256(text: string): string {
-        return createHash("sha256").update(text).digest("hex");
+    private TEST_LIMIT: number = 20;
+
+    private cleanPage($: CheerioRoot) {
+        $(
+            '.tieng-anh, .English, .pro-member-note, .note-pro, [style*="color: #0000FF"], [style*="color:blue"]',
+        ).remove();
+        $("script, style, iframe").remove();
     }
 
-    private normalizeWhitespace(text: string): string {
-        return text
-            .replace(/\r/g, "\n")
-            .replace(/[ \t]+/g, " ")
-            .replace(/\n{3,}/g, "\n\n")
-            .trim();
-    }
+    private async getCrawler(results: LawArticleInsert[]) {
+        return new CheerioCrawler({
+            requestHandlerTimeoutSecs: 900,
+            requestHandler: async ({ $, request, log }) => {
+                this.cleanPage($);
 
-    private parseJsonObject(text: string): Record<string, unknown> | null {
-        const trimmed = text.trim();
-        const fencedMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
-        const candidate = fencedMatch?.[1]?.trim() ?? trimmed;
-        try {
-            const parsed = JSON.parse(candidate);
-            if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-                return parsed as Record<string, unknown>;
-            }
-        } catch {
-            return null;
-        }
-        return null;
-    }
+                const lawTitle = $("h1").text().trim() || "Văn bản pháp luật";
+                const tempArticles: LawArticleInsert[] = [];
 
-    private async runTextTask(config: TaskExecutionConfig, input: string): Promise<string> {
-        const { text } = await generateText({
-            model: google(config.modelName),
-            prompt: `${config.promptContent}\n\nINPUT:\n${input.slice(0, 120_000)}`,
-        });
-        return text.trim();
-    }
+                let currentChapter: string | null = null;
+                let currentArticle: LawArticleInsert | null = null;
+                let skipUntilNextArticle = false;
 
-    private async crawlUrlAndExtract(url: string): Promise<{ html: string; text: string }> {
-        let cleanedHtml = "";
-        let plainText = "";
+                // BƯỚC 1: TRÍCH XUẤT TEXT
+                $(".content1 p, .content1 div").each((_, el) => {
+                    // Dừng trích xuất nếu đã đủ số lượng TEST_LIMIT
+                    if (tempArticles.length >= this.TEST_LIMIT) return false;
 
-        const crawler = new CheerioCrawler({
-            maxRequestsPerCrawl: 1,
-            async requestHandler({ $, body }) {
-                for (const selector of NOISE_SELECTORS) $(selector).remove();
-                const bodyNode = $("body");
-                cleanedHtml =
-                    bodyNode.html() ?? (typeof body === "string" ? body : body.toString("utf8"));
-                plainText = bodyNode.text() ?? "";
-            },
-            async failedRequestHandler({ request }) {
-                throw new Error(`Unable to crawl url: ${request.url}`);
-            },
-        });
+                    const node = $(el);
+                    const text = node.text().replace(/\s+/g, " ").trim();
+                    if (!text || text.includes("Thành viên Pro")) return;
 
-        await crawler.run([url]);
-        plainText = this.normalizeWhitespace(plainText);
-        if (!plainText) {
-            throw new HttpError(
-                HttpStatus.BAD_REQUEST,
-                "No readable text extracted from URL",
-                ErrorCode.VALIDATION_ERROR,
-            );
-        }
-        return { html: cleanedHtml, text: plainText };
-    }
+                    const isChapter =
+                        node.find('a[name^="chuong_"], a[name^="loai_"]')
+                            .length > 0 ||
+                        /^(Phần|Chương|Mục)\s+[0-9IVXLM]+/i.test(text);
 
-    private applyPipelineOverrides(
-        pipeline: PipelineConfig,
-        overrides?: Partial<
-            Record<TaskType, { modelName?: string; promptName?: string; promptContent?: string }>
-        >,
-    ): PipelineConfig {
-        if (!overrides) return pipeline;
-        const byTask: PipelineConfig["byTask"] = { ...pipeline.byTask };
-        for (const [taskType, override] of Object.entries(overrides)) {
-            const current = byTask[taskType as TaskType];
-            if (!current) continue;
-            byTask[taskType as TaskType] = {
-                ...current,
-                ...(override.modelName ? { modelName: override.modelName } : {}),
-                ...(override.promptName ? { promptName: override.promptName } : {}),
-                ...(override.promptContent ? { promptContent: override.promptContent } : {}),
-            };
-        }
-        return { byTask };
-    }
+                    if (isChapter && !LawParserHelper.isEnglish(text)) {
+                        currentChapter = text;
+                        skipUntilNextArticle = false;
+                        return;
+                    }
 
-    private toDraftMetadata(parsed: Record<string, unknown> | null): CrawlDraftMetadata {
-        const tagsRaw = parsed?.tags;
-        const tags = Array.isArray(tagsRaw)
-            ? tagsRaw.filter(
-                  (item): item is string => typeof item === "string" && item.trim().length > 0,
-              )
-            : [];
-        return {
-            chapter: typeof parsed?.chapter === "string" ? parsed.chapter : null,
-            article: typeof parsed?.article === "string" ? parsed.article : null,
-            tags,
-            summary: typeof parsed?.summary === "string" ? parsed.summary : null,
-        };
-    }
+                    const isArticleHeader =
+                        node.find('a[name^="dieu_"]').length > 0 ||
+                        /^Điều\s+\d+\./i.test(text);
 
-    async createCrawlDraft(input: CrawlDraftInput): Promise<CrawlDraftResponse> {
-        const prisma = getPrisma();
-        const crawlLog = await prisma.crawlLog.create({
-            data: {
-                url: input.url,
-                status: CrawlLogStatus.FAILED,
-                startedAt: new Date(),
-            },
-        });
+                    if (isArticleHeader) {
+                        if (LawParserHelper.isEnglish(text)) {
+                            skipUntilNextArticle = true;
+                            return;
+                        }
+                        if (currentArticle) tempArticles.push(currentArticle);
 
-        try {
-            const basePipeline = await adminPipelineService.getPipelineConfig();
-            const pipeline = this.applyPipelineOverrides(basePipeline.pipelineConfig, input.overrides);
-            const htmlCleaningTask = pipeline.byTask.HTML_CLEANING;
-            const classifyTask = pipeline.byTask.CLASSIFICATION;
-            const metadataTask = pipeline.byTask.METADATA_EXTRACT;
+                        currentArticle = {
+                            law_title: lawTitle,
+                            chapter: currentChapter,
+                            article_title: text,
+                            article_number:
+                                LawParserHelper.extractArticleNumber(text),
+                            content: "",
+                            source_url: request.loadedUrl,
+                            embedding: [],
+                        };
+                        skipUntilNextArticle = false;
+                        return;
+                    }
 
-            if (!htmlCleaningTask || !classifyTask || !metadataTask) {
-                throw new HttpError(
-                    HttpStatus.BAD_REQUEST,
-                    "Pipeline config missing required tasks",
-                    ErrorCode.VALIDATION_ERROR,
+                    if (currentArticle && !skipUntilNextArticle) {
+                        if (LawParserHelper.isEnglish(text)) {
+                            skipUntilNextArticle = true;
+                            return;
+                        }
+                        if (text !== currentArticle.article_title) {
+                            currentArticle.content += text + "\n";
+                        }
+                    }
+                });
+
+                // Đẩy article cuối cùng vào list nếu còn
+                if (currentArticle && tempArticles.length < this.TEST_LIMIT) {
+                    tempArticles.push(currentArticle);
+                }
+
+                // BƯỚC 2: LỌC DỮ LIỆU SẠCH
+                const finalData = tempArticles.filter(
+                    (item) =>
+                        item.content.trim().length > 20 &&
+                        LawParserHelper.hasVietnamese(item.content),
                 );
-            }
 
-            const extracted = await this.crawlUrlAndExtract(input.url);
-            const markdownDraft = await this.runTextTask(
-                htmlCleaningTask,
-                `URL: ${input.url}\n\nHTML:\n${extracted.html}`,
-            );
-            const metadataRaw = await this.runTextTask(
-                metadataTask,
-                `URL: ${input.url}\n\nMARKDOWN:\n${markdownDraft}\n\nReturn JSON with chapter, article, tags, summary.`,
-            );
-            const metadata = this.toDraftMetadata(this.parseJsonObject(metadataRaw));
+                log.info(
+                    `Test Mode Active: Processing ${finalData.length} articles (Limit: ${this.TEST_LIMIT})`,
+                );
 
-            const updatedLog = await prisma.crawlLog.update({
-                where: { id: crawlLog.id },
-                data: {
-                    status: CrawlLogStatus.SUCCESS,
-                    contentHash: this.sha256(extracted.text),
-                    fullTextHash: this.sha256(markdownDraft),
-                    finishedAt: new Date(),
-                },
-            });
+                // BƯỚC 3: XỬ LÝ EMBEDDING (Gửi 1 mẻ duy nhất cho nhanh)
+                if (finalData.length > 0) {
+                    const textsToEmbed = finalData.map((item) => {
+                        return `Văn bản: ${item.law_title}\n${item.chapter ? `Chương: ${item.chapter}\n` : ""}Tiêu đề: ${item.article_title}\nNội dung: ${item.content}`
+                            .replace(/\s+/g, " ")
+                            .trim();
+                    });
 
-            return {
-                url: input.url,
-                markdownDraft,
-                metadata,
-                pipeline,
-                crawlLog: {
-                    id: updatedLog.id,
-                    url: updatedLog.url,
-                    status: updatedLog.status,
-                    startedAt: updatedLog.startedAt?.toISOString() ?? null,
-                    finishedAt: updatedLog.finishedAt?.toISOString() ?? null,
-                },
-            };
-        } catch (error) {
-            const message =
-                error instanceof Error ? error.message.slice(0, 5_000) : "Unknown crawl error";
-            await prisma.crawlLog.update({
-                where: { id: crawlLog.id },
-                data: {
-                    status: CrawlLogStatus.FAILED,
-                    errorMessage: message,
-                    finishedAt: new Date(),
-                },
-            });
+                    try {
+                        const embeddings =
+                            await aiService.generateBatchEmbeddings(
+                                textsToEmbed,
+                            );
+                        finalData.forEach((item, idx) => {
+                            item.embedding = embeddings[idx] || [];
+                        });
+                        log.info(
+                            `Successfully generated embeddings for ${finalData.length} items.`,
+                        );
+                    } catch (error) {
+                        log.error(`Embedding failed: ${error}`);
+                        throw error;
+                    }
+                }
+
+                results.push(...finalData);
+            },
+            maxRequestsPerCrawl: 1,
+        });
+    }
+
+    public async crawlAndInsert(page_url: string) {
+        const results: LawArticleInsert[] = [];
+        const crawler = await this.getCrawler(results);
+        await crawler.run([page_url]);
+
+        if (results.length === 0) {
+            return { message: "No valid articles found." };
+        }
+
+        const supabase = getSupabase();
+        const { data, error } = await supabase
+            .from("law_articles")
+            .upsert(results, {
+                onConflict: "source_url, article_title",
+            })
+            .select("id");
+
+        if (error) {
+            console.error("Supabase error:", error.message);
             throw error;
         }
-    }
-
-    async approveCrawlDraft(input: CrawlApproveInput): Promise<CrawlApproveResponse> {
-        const prisma = getPrisma();
-        const existingLog = await prisma.crawlLog.findUnique({ where: { id: input.crawlLogId } });
-        if (!existingLog) {
-            throw new HttpError(HttpStatus.NOT_FOUND, "Crawl log not found", ErrorCode.NOT_FOUND);
-        }
-        if (existingLog.url !== input.url) {
-            throw new HttpError(
-                HttpStatus.BAD_REQUEST,
-                "Crawl log url mismatch",
-                ErrorCode.VALIDATION_ERROR,
-            );
-        }
-
-        const basePipeline = await adminPipelineService.getPipelineConfig();
-        const metadataTask = basePipeline.pipelineConfig.byTask.METADATA_EXTRACT;
-        if (!metadataTask) {
-            throw new HttpError(
-                HttpStatus.BAD_REQUEST,
-                "Pipeline config missing METADATA_EXTRACT",
-                ErrorCode.VALIDATION_ERROR,
-            );
-        }
-
-        const syncNote = await this.runTextTask(
-            metadataTask,
-            `Prepare sync metadata summary for approved markdown.\n\nURL: ${input.url}\nCATEGORY: ${input.category ?? ""}\nMARKDOWN:\n${input.markdownDraft}`,
-        );
-        const finalStatus =
-            input.desiredStatus === CrawlLogStatus.FAILED
-                ? CrawlLogStatus.FAILED
-                : CrawlLogStatus.SUCCESS;
-        const now = new Date();
-
-        const updatedLog = await prisma.crawlLog.update({
-            where: { id: existingLog.id },
-            data: {
-                status: finalStatus,
-                fullTextHash: this.sha256(input.markdownDraft),
-                contentHash: this.sha256(this.normalizeWhitespace(input.markdownDraft)),
-                errorMessage:
-                    finalStatus === CrawlLogStatus.FAILED
-                        ? "Marked as failed by admin approve flow"
-                        : null,
-                finishedAt: now,
-            },
-        });
-
-        const syncPayloadPreview = {
-            url: input.url,
-            category: input.category ?? null,
-            metadata: input.metadata,
-            markdownLength: input.markdownDraft.length,
-            tagsCount: input.metadata.tags.length,
-            processedAt: now.toISOString(),
-        };
-        console.info(
-            "[ADMIN_CRAWL_APPROVE_SUPABASE_DRY_RUN]",
-            JSON.stringify({ note: syncNote, payload: syncPayloadPreview }),
-        );
 
         return {
-            approved: finalStatus === CrawlLogStatus.SUCCESS,
-            crawlLog: {
-                id: updatedLog.id,
-                url: updatedLog.url,
-                status: updatedLog.status,
-                startedAt: updatedLog.startedAt?.toISOString() ?? null,
-                finishedAt: updatedLog.finishedAt?.toISOString() ?? null,
-            },
-            syncDryRun: {
-                target: "supabase",
-                note: syncNote,
-                preview: {
-                    url: syncPayloadPreview.url,
-                    category: syncPayloadPreview.category,
-                    markdownLength: syncPayloadPreview.markdownLength,
-                    tagsCount: syncPayloadPreview.tagsCount,
-                    processedAt: syncPayloadPreview.processedAt,
-                },
-            },
+            message: "Crawl and Insert success!",
+            count: data?.length || 0,
         };
     }
 }

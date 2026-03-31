@@ -2,634 +2,611 @@
 // Prisma ORM 7: URL / shadow DB cấu hình trong prisma.config.ts (root project).
 
 generator client {
-  provider = "prisma-client"
-  output   = "../generated/prisma"
+    provider = "prisma-client"
+    output   = "../generated/prisma"
 }
 
 datasource db {
-  provider = "mysql"
+    provider = "mysql"
 }
 
 // --- Enums ---
 
 enum UserRole {
-  USER
-  VERIFIED_LAWYER
-  ADMIN
+    USER
+    VERIFIED_LAWYER
+    ADMIN
 }
 
 enum LawyerVerificationStatus {
-  PENDING
-  APPROVED
-  REJECTED
-  REVOKED
+    PENDING
+    APPROVED
+    REJECTED
+    REVOKED
 }
 
 enum AssistantMessageRole {
-  USER
-  ASSISTANT
-  SYSTEM
+    USER
+    ASSISTANT
+    SYSTEM
 }
 
 enum MessageRatingValue {
-  UP
-  DOWN
+    UP
+    DOWN
 }
 
 enum HubPostStatus {
-  PUBLISHED
-  HIDDEN
+    PUBLISHED
+    HIDDEN
 }
 
 enum BlogPostStatus {
-  DRAFT
-  PUBLISHED
+    DRAFT
+    PUBLISHED
 }
 
 enum ReputationReason {
-  HUB_REPLY_HELPFUL
-  BLOG_QUALITY
-  BLOG_COMMENT_HELPFUL
-  MOD_ADJUSTMENT
-  ADMIN_BONUS
-  ADMIN_PENALTY
+    HUB_REPLY_HELPFUL
+    BLOG_QUALITY
+    BLOG_COMMENT_HELPFUL
+    MOD_ADJUSTMENT
+    ADMIN_BONUS
+    ADMIN_PENALTY
 }
 
 enum ReportTargetType {
-  HUB_POST
-  HUB_COMMENT
-  BLOG_POST
-  USER
-  OVERSIGHT
+    HUB_POST
+    HUB_COMMENT
+    BLOG_POST
+    USER
+    OVERSIGHT
 }
 
 enum ReportStatus {
-  OPEN
-  ACTIONED
-  DISMISSED
+    OPEN
+    ACTIONED
+    DISMISSED
 }
 
 enum AuthProvider {
-  FIREBASE
-}
-
-enum TaskType {
-  HTML_CLEANING
-  CLASSIFICATION
-  METADATA_EXTRACT
-  EMBEDDING
+    FIREBASE
 }
 
 enum CrawlLogStatus {
-  SUCCESS
-  FAILED
-  NO_CHANGE
+    SUCCESS
+    FAILED
+    NO_CHANGE
 }
 
 // --- Core: users & verification ---
 
 model User {
-  id               String    @id @default(cuid())
-  email            String    @unique
-  passwordHash     String?   @map("password_hash")
-  emailVerifiedAt  DateTime? @map("email_verified_at")
-  role             UserRole  @default(USER)
-  createdAt        DateTime  @default(now()) @map("created_at")
-  updatedAt        DateTime  @updatedAt @map("updated_at")
-  deletedAt        DateTime? @map("deleted_at")
+    id              String    @id @default(cuid())
+    email           String    @unique
+    passwordHash    String?   @map("password_hash")
+    emailVerifiedAt DateTime? @map("email_verified_at")
+    role            UserRole  @default(USER)
+    createdAt       DateTime  @default(now()) @map("created_at")
+    updatedAt       DateTime  @updatedAt @map("updated_at")
+    deletedAt       DateTime? @map("deleted_at")
 
-  profile                  Profile?
-  lawyerVerifications      LawyerVerification[] @relation("LawyerVerificationSubject")
-  verificationReviews      LawyerVerification[] @relation("LawyerVerificationReviewer")
-  assistantConversations   AssistantConversation[]
-  hubPosts                 HubPost[]                  @relation("HubPostAuthor")
-  hubComments              HubComment[]               @relation("HubCommentAuthor")
-  blogPosts                BlogPost[]                 @relation("BlogPostAuthor")
-  blogComments             BlogComment[]              @relation("BlogCommentAuthor")
-  blogPostLikes            BlogPostLike[]
-  hubCommentLikes          HubCommentLike[]
-  blogCommentLikes         BlogCommentLike[]
-  savedBlogPosts           SavedBlogPost[]
-  assistantMessageRatings  AssistantMessageRating[]
-  reputationLedgers        ReputationLedger[]
-  userContributionScore    UserContributionScore?
-  reportsFiled             Report[]                   @relation("ReportReporter")
-  reportsHandled           Report[]                   @relation("ReportHandler")
-  blogPostsVerified        BlogPost[]                 @relation("BlogPostVerifiedBy")
-  refreshSessions          RefreshSession[]
-  emailVerificationTokens  EmailVerificationToken[]
-  passwordResetTokens      PasswordResetToken[]
-  authIdentities           UserAuthIdentity[]
+    profile                 Profile?
+    lawyerVerifications     LawyerVerification[]     @relation("LawyerVerificationSubject")
+    verificationReviews     LawyerVerification[]     @relation("LawyerVerificationReviewer")
+    assistantConversations  AssistantConversation[]
+    hubPosts                HubPost[]                @relation("HubPostAuthor")
+    hubComments             HubComment[]             @relation("HubCommentAuthor")
+    blogPosts               BlogPost[]               @relation("BlogPostAuthor")
+    blogComments            BlogComment[]            @relation("BlogCommentAuthor")
+    blogPostLikes           BlogPostLike[]
+    hubCommentLikes         HubCommentLike[]
+    blogCommentLikes        BlogCommentLike[]
+    savedBlogPosts          SavedBlogPost[]
+    assistantMessageRatings AssistantMessageRating[]
+    reputationLedgers       ReputationLedger[]
+    userContributionScore   UserContributionScore?
+    reportsFiled            Report[]                 @relation("ReportReporter")
+    reportsHandled          Report[]                 @relation("ReportHandler")
+    blogPostsVerified       BlogPost[]               @relation("BlogPostVerifiedBy")
+    refreshSessions         RefreshSession[]
+    emailVerificationTokens EmailVerificationToken[]
+    passwordResetTokens     PasswordResetToken[]
+    authIdentities          UserAuthIdentity[]
 
-  @@index([email])
-  @@index([role])
-  @@map("users")
+    @@index([email])
+    @@index([role])
+    @@map("users")
 }
 
 model RefreshSession {
-  id        String    @id @default(cuid())
-  userId    String    @map("user_id")
-  tokenHash String    @map("token_hash") @db.VarChar(64)
-  expiresAt DateTime  @map("expires_at")
-  revokedAt DateTime? @map("revoked_at")
-  createdAt DateTime  @default(now()) @map("created_at")
+    id        String    @id @default(cuid())
+    userId    String    @map("user_id")
+    tokenHash String    @map("token_hash") @db.VarChar(64)
+    expiresAt DateTime  @map("expires_at")
+    revokedAt DateTime? @map("revoked_at")
+    createdAt DateTime  @default(now()) @map("created_at")
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+    user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@index([userId])
-  @@map("refresh_sessions")
+    @@index([userId])
+    @@map("refresh_sessions")
 }
 
 model EmailVerificationToken {
-  id         String    @id @default(cuid())
-  userId     String    @map("user_id")
-  tokenHash  String    @map("token_hash") @db.VarChar(64)
-  expiresAt  DateTime  @map("expires_at")
-  consumedAt DateTime? @map("consumed_at")
-  createdAt  DateTime  @default(now()) @map("created_at")
+    id         String    @id @default(cuid())
+    userId     String    @map("user_id")
+    tokenHash  String    @map("token_hash") @db.VarChar(64)
+    expiresAt  DateTime  @map("expires_at")
+    consumedAt DateTime? @map("consumed_at")
+    createdAt  DateTime  @default(now()) @map("created_at")
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+    user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@index([userId])
-  @@map("email_verification_tokens")
+    @@index([userId])
+    @@map("email_verification_tokens")
 }
 
 model PasswordResetToken {
-  id         String    @id @default(cuid())
-  userId     String    @map("user_id")
-  codeHash   String    @map("code_hash") @db.VarChar(64)
-  expiresAt  DateTime  @map("expires_at")
-  attempts   Int       @default(0)
-  consumedAt DateTime? @map("consumed_at")
-  createdAt  DateTime  @default(now()) @map("created_at")
+    id         String    @id @default(cuid())
+    userId     String    @map("user_id")
+    codeHash   String    @map("code_hash") @db.VarChar(64)
+    expiresAt  DateTime  @map("expires_at")
+    attempts   Int       @default(0)
+    consumedAt DateTime? @map("consumed_at")
+    createdAt  DateTime  @default(now()) @map("created_at")
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+    user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@index([userId])
-  @@map("password_reset_tokens")
+    @@index([userId])
+    @@map("password_reset_tokens")
 }
 
 model UserAuthIdentity {
-  id             String       @id @default(cuid())
-  userId         String       @map("user_id")
-  provider       AuthProvider
-  providerUserId String       @map("provider_user_id")
-  emailAtLink    String?      @map("email_at_link")
-  createdAt      DateTime     @default(now()) @map("created_at")
+    id             String       @id @default(cuid())
+    userId         String       @map("user_id")
+    provider       AuthProvider
+    providerUserId String       @map("provider_user_id")
+    emailAtLink    String?      @map("email_at_link")
+    createdAt      DateTime     @default(now()) @map("created_at")
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+    user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@unique([provider, providerUserId])
-  @@index([userId])
-  @@map("user_auth_identities")
+    @@unique([provider, providerUserId])
+    @@index([userId])
+    @@map("user_auth_identities")
 }
 
 model Profile {
-  id                   String    @id @default(cuid())
-  userId               String    @unique @map("user_id")
-  username             String    @unique
-  displayName          String?   @map("display_name")
-  avatarUrl            String?   @map("avatar_url")
-  bio                  String?   @db.Text
-  contributorOptOut  Boolean   @default(false) @map("contributor_opt_out")
-  createdAt            DateTime  @default(now()) @map("created_at")
-  updatedAt            DateTime  @updatedAt @map("updated_at")
-  deletedAt            DateTime? @map("deleted_at")
+    id                String    @id @default(cuid())
+    userId            String    @unique @map("user_id")
+    username          String    @unique
+    displayName       String?   @map("display_name")
+    avatarUrl         String?   @map("avatar_url")
+    bio               String?   @db.Text
+    contributorOptOut Boolean   @default(false) @map("contributor_opt_out")
+    createdAt         DateTime  @default(now()) @map("created_at")
+    updatedAt         DateTime  @updatedAt @map("updated_at")
+    deletedAt         DateTime? @map("deleted_at")
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+    user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@map("profiles")
+    @@map("profiles")
 }
 
 model LawyerVerification {
-  id                 String                   @id @default(cuid())
-  userId             String                   @map("user_id")
-  status             LawyerVerificationStatus @default(PENDING)
-  jurisdiction       String?
-  barNumber          String?                  @map("bar_number")
-  firmName           String?                  @map("firm_name")
-  evidenceJson       Json?                    @map("evidence_json")
-  reviewedByUserId   String?                  @map("reviewed_by_user_id")
-  reviewedAt         DateTime?                @map("reviewed_at")
-  note               String?                  @db.Text
-  createdAt          DateTime                 @default(now()) @map("created_at")
-  updatedAt          DateTime                 @updatedAt @map("updated_at")
-  deletedAt          DateTime?                @map("deleted_at")
+    id               String                   @id @default(cuid())
+    userId           String                   @map("user_id")
+    status           LawyerVerificationStatus @default(PENDING)
+    jurisdiction     String?
+    barNumber        String?                  @map("bar_number")
+    firmName         String?                  @map("firm_name")
+    evidenceJson     Json?                    @map("evidence_json")
+    reviewedByUserId String?                  @map("reviewed_by_user_id")
+    reviewedAt       DateTime?                @map("reviewed_at")
+    note             String?                  @db.Text
+    createdAt        DateTime                 @default(now()) @map("created_at")
+    updatedAt        DateTime                 @updatedAt @map("updated_at")
+    deletedAt        DateTime?                @map("deleted_at")
 
-  user       User  @relation("LawyerVerificationSubject", fields: [userId], references: [id], onDelete: Cascade)
-  reviewedBy User? @relation("LawyerVerificationReviewer", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+    user       User  @relation("LawyerVerificationSubject", fields: [userId], references: [id], onDelete: Cascade)
+    reviewedBy User? @relation("LawyerVerificationReviewer", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
 
-  @@index([userId])
-  @@index([status])
-  @@map("lawyer_verifications")
+    @@index([userId])
+    @@index([status])
+    @@map("lawyer_verifications")
 }
 
 // --- Assistant (tra cứu) ---
 
 model AssistantConversation {
-  id        String    @id @default(cuid())
-  userId    String    @map("user_id")
-  title     String?
-  createdAt DateTime  @default(now()) @map("created_at")
-  updatedAt DateTime  @updatedAt @map("updated_at")
-  deletedAt DateTime? @map("deleted_at")
+    id        String    @id @default(cuid())
+    userId    String    @map("user_id")
+    title     String?
+    createdAt DateTime  @default(now()) @map("created_at")
+    updatedAt DateTime  @updatedAt @map("updated_at")
+    deletedAt DateTime? @map("deleted_at")
 
-  user     User                @relation(fields: [userId], references: [id], onDelete: Cascade)
-  messages AssistantMessage[]
+    user     User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+    messages AssistantMessage[]
 
-  @@index([userId, createdAt])
-  @@map("assistant_conversations")
+    @@index([userId, createdAt])
+    @@map("assistant_conversations")
 }
 
 model AssistantMessage {
-  id             String               @id @default(cuid())
-  conversationId String               @map("conversation_id")
-  role           AssistantMessageRole
-  content        String               @db.LongText
-  metadataJson   Json?                @map("metadata_json")
-  createdAt      DateTime             @default(now()) @map("created_at")
-  updatedAt      DateTime             @updatedAt @map("updated_at")
+    id             String               @id @default(cuid())
+    conversationId String               @map("conversation_id")
+    role           AssistantMessageRole
+    content        String               @db.LongText
+    metadataJson   Json?                @map("metadata_json")
+    createdAt      DateTime             @default(now()) @map("created_at")
+    updatedAt      DateTime             @updatedAt @map("updated_at")
 
-  conversation AssistantConversation    @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  ratings      AssistantMessageRating[]
+    conversation AssistantConversation    @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+    ratings      AssistantMessageRating[]
 
-  @@index([conversationId])
-  @@map("assistant_messages")
+    @@index([conversationId])
+    @@map("assistant_messages")
 }
 
 model AssistantMessageRating {
-  id        String             @id @default(cuid())
-  messageId String             @map("message_id")
-  userId    String             @map("user_id")
-  value     MessageRatingValue
-  createdAt DateTime           @default(now()) @map("created_at")
-  updatedAt DateTime           @updatedAt @map("updated_at")
+    id        String             @id @default(cuid())
+    messageId String             @map("message_id")
+    userId    String             @map("user_id")
+    value     MessageRatingValue
+    createdAt DateTime           @default(now()) @map("created_at")
+    updatedAt DateTime           @updatedAt @map("updated_at")
 
-  message AssistantMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
-  user    User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+    message AssistantMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+    user    User             @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@unique([messageId, userId])
-  @@index([userId])
-  @@map("assistant_message_ratings")
+    @@unique([messageId, userId])
+    @@index([userId])
+    @@map("assistant_message_ratings")
 }
 
 // --- Hub ---
 
 model HubCategory {
-  id        String    @id @default(cuid())
-  slug      String    @unique
-  name      String
-  sortOrder Int       @default(0) @map("sort_order")
-  createdAt DateTime  @default(now()) @map("created_at")
-  updatedAt DateTime  @updatedAt @map("updated_at")
-  deletedAt DateTime? @map("deleted_at")
+    id        String    @id @default(cuid())
+    slug      String    @unique
+    name      String
+    sortOrder Int       @default(0) @map("sort_order")
+    createdAt DateTime  @default(now()) @map("created_at")
+    updatedAt DateTime  @updatedAt @map("updated_at")
+    deletedAt DateTime? @map("deleted_at")
 
-  posts HubPost[]
+    posts HubPost[]
 
-  @@map("hub_categories")
+    @@map("hub_categories")
 }
 
 model HubPost {
-  id         String        @id @default(cuid())
-  categoryId String?       @map("category_id")
-  authorId   String        @map("author_id")
-  slug       String        @unique
-  title      String
-  body       String        @db.LongText
-  status     HubPostStatus @default(PUBLISHED)
-  createdAt  DateTime      @default(now()) @map("created_at")
-  updatedAt  DateTime      @updatedAt @map("updated_at")
-  deletedAt  DateTime?     @map("deleted_at")
+    id         String        @id @default(cuid())
+    categoryId String?       @map("category_id")
+    authorId   String        @map("author_id")
+    slug       String        @unique
+    title      String
+    body       String        @db.LongText
+    status     HubPostStatus @default(PUBLISHED)
+    createdAt  DateTime      @default(now()) @map("created_at")
+    updatedAt  DateTime      @updatedAt @map("updated_at")
+    deletedAt  DateTime?     @map("deleted_at")
 
-  category   HubCategory?          @relation(fields: [categoryId], references: [id], onDelete: SetNull)
-  author     User                  @relation("HubPostAuthor", fields: [authorId], references: [id], onDelete: Cascade)
-  comments   HubComment[]
-  oversights HubOversightVersion[]
+    category   HubCategory?          @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+    author     User                  @relation("HubPostAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+    comments   HubComment[]
+    oversights HubOversightVersion[]
 
-  @@index([categoryId, createdAt])
-  @@index([authorId])
-  @@map("hub_posts")
+    @@index([categoryId, createdAt])
+    @@index([authorId])
+    @@map("hub_posts")
 }
 
 model HubComment {
-  id        String    @id @default(cuid())
-  postId    String    @map("post_id")
-  parentId  String?   @map("parent_id")
-  authorId  String    @map("author_id")
-  body      String    @db.Text
-  createdAt DateTime  @default(now()) @map("created_at")
-  updatedAt DateTime  @updatedAt @map("updated_at")
-  deletedAt DateTime? @map("deleted_at")
+    id        String    @id @default(cuid())
+    postId    String    @map("post_id")
+    parentId  String?   @map("parent_id")
+    authorId  String    @map("author_id")
+    body      String    @db.Text
+    createdAt DateTime  @default(now()) @map("created_at")
+    updatedAt DateTime  @updatedAt @map("updated_at")
+    deletedAt DateTime? @map("deleted_at")
 
-  post          HubPost               @relation(fields: [postId], references: [id], onDelete: Cascade)
-  parent        HubComment?           @relation("CommentThread", fields: [parentId], references: [id], onDelete: SetNull)
-  replies       HubComment[]          @relation("CommentThread")
-  author        User                  @relation("HubCommentAuthor", fields: [authorId], references: [id], onDelete: Cascade)
-  likes         HubCommentLike[]
-  reputationRef ReputationLedger[]    @relation("LedgerHubComment")
+    post          HubPost            @relation(fields: [postId], references: [id], onDelete: Cascade)
+    parent        HubComment?        @relation("CommentThread", fields: [parentId], references: [id], onDelete: SetNull)
+    replies       HubComment[]       @relation("CommentThread")
+    author        User               @relation("HubCommentAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+    likes         HubCommentLike[]
+    reputationRef ReputationLedger[] @relation("LedgerHubComment")
 
-  @@index([postId, parentId])
-  @@index([authorId])
-  @@map("hub_comments")
+    @@index([postId, parentId])
+    @@index([authorId])
+    @@map("hub_comments")
 }
 
 model HubCommentLike {
-  userId       String   @map("user_id")
-  hubCommentId String   @map("hub_comment_id")
-  createdAt    DateTime @default(now()) @map("created_at")
+    userId       String   @map("user_id")
+    hubCommentId String   @map("hub_comment_id")
+    createdAt    DateTime @default(now()) @map("created_at")
 
-  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  hubComment HubComment @relation(fields: [hubCommentId], references: [id], onDelete: Cascade)
+    user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+    hubComment HubComment @relation(fields: [hubCommentId], references: [id], onDelete: Cascade)
 
-  @@id([userId, hubCommentId])
-  @@index([hubCommentId])
-  @@map("hub_comment_likes")
+    @@id([userId, hubCommentId])
+    @@index([hubCommentId])
+    @@map("hub_comment_likes")
 }
 
 model HubOversightVersion {
-  id                 String    @id @default(cuid())
-  postId             String    @map("post_id")
-  version            Int
-  summaryText        String    @map("summary_text") @db.Text
-  suggestionsJson    Json?     @map("suggestions_json")
-  legalCorpusVersion String?   @map("legal_corpus_version")
-  modelVersion       String?   @map("model_version")
-  isCurrent          Boolean   @default(false) @map("is_current")
-  createdAt          DateTime  @default(now()) @map("created_at")
+    id                 String   @id @default(cuid())
+    postId             String   @map("post_id")
+    version            Int
+    summaryText        String   @map("summary_text") @db.Text
+    suggestionsJson    Json?    @map("suggestions_json")
+    legalCorpusVersion String?  @map("legal_corpus_version")
+    modelVersion       String?  @map("model_version")
+    isCurrent          Boolean  @default(false) @map("is_current")
+    createdAt          DateTime @default(now()) @map("created_at")
 
-  post HubPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+    post HubPost @relation(fields: [postId], references: [id], onDelete: Cascade)
 
-  @@unique([postId, version])
-  @@index([postId, isCurrent])
-  @@map("hub_oversight_versions")
+    @@unique([postId, version])
+    @@index([postId, isCurrent])
+    @@map("hub_oversight_versions")
 }
 
 // --- Blog ---
 
 model BlogPost {
-  id                  String         @id @default(cuid())
-  authorId            String         @map("author_id")
-  slug                String         @unique
-  title               String
-  thumbnailUrl        String?        @map("thumbnail_url") @db.VarChar(2048)
-  excerpt             String?        @db.Text
-  body                String         @db.LongText
-  status              BlogPostStatus @default(DRAFT)
-  isVerified          Boolean        @default(false) @map("is_verified")
-  verifiedAt          DateTime?      @map("verified_at")
-  verifiedByUserId    String?        @map("verified_by_user_id")
-  verificationNotes   String?        @map("verification_notes") @db.Text
-  legalCorpusVersion  String?        @map("legal_corpus_version")
-  createdAt           DateTime       @default(now()) @map("created_at")
-  updatedAt           DateTime       @updatedAt @map("updated_at")
-  deletedAt           DateTime?      @map("deleted_at")
+    id                 String         @id @default(cuid())
+    authorId           String         @map("author_id")
+    slug               String         @unique
+    title              String
+    thumbnailUrl       String?        @map("thumbnail_url") @db.VarChar(2048)
+    excerpt            String?        @db.Text
+    body               String         @db.LongText
+    status             BlogPostStatus @default(DRAFT)
+    isVerified         Boolean        @default(false) @map("is_verified")
+    verifiedAt         DateTime?      @map("verified_at")
+    verifiedByUserId   String?        @map("verified_by_user_id")
+    verificationNotes  String?        @map("verification_notes") @db.Text
+    legalCorpusVersion String?        @map("legal_corpus_version")
+    createdAt          DateTime       @default(now()) @map("created_at")
+    updatedAt          DateTime       @updatedAt @map("updated_at")
+    deletedAt          DateTime?      @map("deleted_at")
 
-  author     User                @relation("BlogPostAuthor", fields: [authorId], references: [id], onDelete: Cascade)
-  verifiedBy User?               @relation("BlogPostVerifiedBy", fields: [verifiedByUserId], references: [id], onDelete: SetNull)
-  tags       BlogPostTag[]
-  comments   BlogComment[]
-  likes      BlogPostLike[]
-  savedBy    SavedBlogPost[]
-  reputationRef ReputationLedger[] @relation("LedgerBlogPost")
+    author        User               @relation("BlogPostAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+    verifiedBy    User?              @relation("BlogPostVerifiedBy", fields: [verifiedByUserId], references: [id], onDelete: SetNull)
+    tags          BlogPostTag[]
+    comments      BlogComment[]
+    likes         BlogPostLike[]
+    savedBy       SavedBlogPost[]
+    reputationRef ReputationLedger[] @relation("LedgerBlogPost")
 
-  @@index([slug])
-  @@index([isVerified, status, updatedAt])
-  @@index([authorId])
-  @@map("blog_posts")
+    @@index([slug])
+    @@index([isVerified, status, updatedAt])
+    @@index([authorId])
+    @@map("blog_posts")
 }
 
 model Tag {
-  id        String    @id @default(cuid())
-  slug      String    @unique
-  name      String
-  createdAt DateTime  @default(now()) @map("created_at")
-  updatedAt DateTime  @updatedAt @map("updated_at")
-  deletedAt DateTime? @map("deleted_at")
+    id        String    @id @default(cuid())
+    slug      String    @unique
+    name      String
+    createdAt DateTime  @default(now()) @map("created_at")
+    updatedAt DateTime  @updatedAt @map("updated_at")
+    deletedAt DateTime? @map("deleted_at")
 
-  posts BlogPostTag[]
+    posts BlogPostTag[]
 
-  @@map("tags")
+    @@map("tags")
 }
 
 model BlogPostTag {
-  blogPostId String @map("blog_post_id")
-  tagId      String @map("tag_id")
+    blogPostId String @map("blog_post_id")
+    tagId      String @map("tag_id")
 
-  blogPost BlogPost @relation(fields: [blogPostId], references: [id], onDelete: Cascade)
-  tag      Tag      @relation(fields: [tagId], references: [id], onDelete: Cascade)
+    blogPost BlogPost @relation(fields: [blogPostId], references: [id], onDelete: Cascade)
+    tag      Tag      @relation(fields: [tagId], references: [id], onDelete: Cascade)
 
-  @@id([blogPostId, tagId])
-  @@index([tagId])
-  @@map("blog_post_tags")
+    @@id([blogPostId, tagId])
+    @@index([tagId])
+    @@map("blog_post_tags")
 }
 
 model BlogComment {
-  id         String    @id @default(cuid())
-  blogPostId String    @map("blog_post_id")
-  parentId   String?   @map("parent_id")
-  authorId   String    @map("author_id")
-  body       String    @db.Text
-  createdAt  DateTime  @default(now()) @map("created_at")
-  updatedAt  DateTime  @updatedAt @map("updated_at")
-  deletedAt  DateTime? @map("deleted_at")
+    id         String    @id @default(cuid())
+    blogPostId String    @map("blog_post_id")
+    parentId   String?   @map("parent_id")
+    authorId   String    @map("author_id")
+    body       String    @db.Text
+    createdAt  DateTime  @default(now()) @map("created_at")
+    updatedAt  DateTime  @updatedAt @map("updated_at")
+    deletedAt  DateTime? @map("deleted_at")
 
-  blogPost BlogPost    @relation(fields: [blogPostId], references: [id], onDelete: Cascade)
-  parent   BlogComment? @relation("BlogCommentThread", fields: [parentId], references: [id], onDelete: SetNull)
-  replies  BlogComment[] @relation("BlogCommentThread")
-  author        User               @relation("BlogCommentAuthor", fields: [authorId], references: [id], onDelete: Cascade)
-  likes         BlogCommentLike[]
-  reputationRef ReputationLedger[] @relation("LedgerBlogComment")
+    blogPost      BlogPost           @relation(fields: [blogPostId], references: [id], onDelete: Cascade)
+    parent        BlogComment?       @relation("BlogCommentThread", fields: [parentId], references: [id], onDelete: SetNull)
+    replies       BlogComment[]      @relation("BlogCommentThread")
+    author        User               @relation("BlogCommentAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+    likes         BlogCommentLike[]
+    reputationRef ReputationLedger[] @relation("LedgerBlogComment")
 
-  @@index([blogPostId, parentId])
-  @@index([authorId])
-  @@map("blog_comments")
+    @@index([blogPostId, parentId])
+    @@index([authorId])
+    @@map("blog_comments")
 }
 
 model BlogCommentLike {
-  userId         String   @map("user_id")
-  blogCommentId  String   @map("blog_comment_id")
-  createdAt      DateTime @default(now()) @map("created_at")
+    userId        String   @map("user_id")
+    blogCommentId String   @map("blog_comment_id")
+    createdAt     DateTime @default(now()) @map("created_at")
 
-  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  blogComment BlogComment @relation(fields: [blogCommentId], references: [id], onDelete: Cascade)
+    user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+    blogComment BlogComment @relation(fields: [blogCommentId], references: [id], onDelete: Cascade)
 
-  @@id([userId, blogCommentId])
-  @@index([blogCommentId])
-  @@map("blog_comment_likes")
+    @@id([userId, blogCommentId])
+    @@index([blogCommentId])
+    @@map("blog_comment_likes")
 }
 
 model BlogPostLike {
-  userId     String   @map("user_id")
-  blogPostId String   @map("blog_post_id")
-  createdAt  DateTime @default(now()) @map("created_at")
+    userId     String   @map("user_id")
+    blogPostId String   @map("blog_post_id")
+    createdAt  DateTime @default(now()) @map("created_at")
 
-  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  blogPost BlogPost @relation(fields: [blogPostId], references: [id], onDelete: Cascade)
+    user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+    blogPost BlogPost @relation(fields: [blogPostId], references: [id], onDelete: Cascade)
 
-  @@id([userId, blogPostId])
-  @@index([blogPostId])
-  @@map("blog_post_likes")
+    @@id([userId, blogPostId])
+    @@index([blogPostId])
+    @@map("blog_post_likes")
 }
 
 model SavedBlogPost {
-  userId     String   @map("user_id")
-  blogPostId String   @map("blog_post_id")
-  createdAt  DateTime @default(now()) @map("created_at")
+    userId     String   @map("user_id")
+    blogPostId String   @map("blog_post_id")
+    createdAt  DateTime @default(now()) @map("created_at")
 
-  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  blogPost BlogPost @relation(fields: [blogPostId], references: [id], onDelete: Cascade)
+    user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+    blogPost BlogPost @relation(fields: [blogPostId], references: [id], onDelete: Cascade)
 
-  @@id([userId, blogPostId])
-  @@index([blogPostId])
-  @@index([userId, createdAt])
-  @@map("saved_blog_posts")
+    @@id([userId, blogPostId])
+    @@index([blogPostId])
+    @@index([userId, createdAt])
+    @@map("saved_blog_posts")
 }
 
 // --- Reputation & leaderboard ---
 
 model ReputationLedger {
-  id                 String           @id @default(cuid())
-  userId             String           @map("user_id")
-  delta              Int
-  reason             ReputationReason
-  refHubCommentId    String?          @map("ref_hub_comment_id")
-  refBlogPostId      String?          @map("ref_blog_post_id")
-  refBlogCommentId   String?          @map("ref_blog_comment_id")
-  createdAt          DateTime         @default(now()) @map("created_at")
+    id               String           @id @default(cuid())
+    userId           String           @map("user_id")
+    delta            Int
+    reason           ReputationReason
+    refHubCommentId  String?          @map("ref_hub_comment_id")
+    refBlogPostId    String?          @map("ref_blog_post_id")
+    refBlogCommentId String?          @map("ref_blog_comment_id")
+    createdAt        DateTime         @default(now()) @map("created_at")
 
-  user            User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  refHubComment   HubComment?  @relation("LedgerHubComment", fields: [refHubCommentId], references: [id], onDelete: SetNull)
-  refBlogPost     BlogPost?    @relation("LedgerBlogPost", fields: [refBlogPostId], references: [id], onDelete: SetNull)
-  refBlogComment  BlogComment? @relation("LedgerBlogComment", fields: [refBlogCommentId], references: [id], onDelete: SetNull)
+    user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+    refHubComment  HubComment?  @relation("LedgerHubComment", fields: [refHubCommentId], references: [id], onDelete: SetNull)
+    refBlogPost    BlogPost?    @relation("LedgerBlogPost", fields: [refBlogPostId], references: [id], onDelete: SetNull)
+    refBlogComment BlogComment? @relation("LedgerBlogComment", fields: [refBlogCommentId], references: [id], onDelete: SetNull)
 
-  @@index([userId, createdAt])
-  @@index([reason])
-  @@map("reputation_ledger")
+    @@index([userId, createdAt])
+    @@index([reason])
+    @@map("reputation_ledger")
 }
 
 model UserContributionScore {
-  id        String   @id @default(cuid())
-  userId    String   @unique @map("user_id")
-  score     Int      @default(0)
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+    id        String   @id @default(cuid())
+    userId    String   @unique @map("user_id")
+    score     Int      @default(0)
+    createdAt DateTime @default(now()) @map("created_at")
+    updatedAt DateTime @updatedAt @map("updated_at")
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+    user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@map("user_contribution_scores")
+    @@map("user_contribution_scores")
 }
 
 model LeaderboardSnapshot {
-  id         String   @id @default(cuid())
-  periodStart DateTime @map("period_start")
-  periodEnd   DateTime @map("period_end")
-  payloadJson Json     @map("payload_json")
-  createdAt  DateTime @default(now()) @map("created_at")
+    id          String   @id @default(cuid())
+    periodStart DateTime @map("period_start")
+    periodEnd   DateTime @map("period_end")
+    payloadJson Json     @map("payload_json")
+    createdAt   DateTime @default(now()) @map("created_at")
 
-  @@index([periodStart, periodEnd])
-  @@map("leaderboard_snapshots")
+    @@index([periodStart, periodEnd])
+    @@map("leaderboard_snapshots")
 }
 
 // --- Moderation ---
 
 model Report {
-  id               String           @id @default(cuid())
-  reporterId       String           @map("reporter_id")
-  targetType       ReportTargetType @map("target_type")
-  targetId         String           @map("target_id")
-  reason           String           @db.Text
-  status           ReportStatus     @default(OPEN)
-  handledByUserId  String?          @map("handled_by_user_id")
-  createdAt        DateTime         @default(now()) @map("created_at")
-  updatedAt        DateTime         @updatedAt @map("updated_at")
+    id              String           @id @default(cuid())
+    reporterId      String           @map("reporter_id")
+    targetType      ReportTargetType @map("target_type")
+    targetId        String           @map("target_id")
+    reason          String           @db.Text
+    status          ReportStatus     @default(OPEN)
+    handledByUserId String?          @map("handled_by_user_id")
+    createdAt       DateTime         @default(now()) @map("created_at")
+    updatedAt       DateTime         @updatedAt @map("updated_at")
 
-  reporter    User  @relation("ReportReporter", fields: [reporterId], references: [id], onDelete: Cascade)
-  handledBy   User? @relation("ReportHandler", fields: [handledByUserId], references: [id], onDelete: SetNull)
+    reporter  User  @relation("ReportReporter", fields: [reporterId], references: [id], onDelete: Cascade)
+    handledBy User? @relation("ReportHandler", fields: [handledByUserId], references: [id], onDelete: SetNull)
 
-  @@index([status, createdAt])
-  @@index([targetType, targetId])
-  @@map("reports")
+    @@index([status, createdAt])
+    @@index([targetType, targetId])
+    @@map("reports")
 }
 
 // --- RAG / legal corpus (optional) ---
 
 model LegalSource {
-  id            String    @id @default(cuid())
-  title         String
-  sourceUrl     String?   @map("source_url") @db.VarChar(2048)
-  effectiveFrom DateTime? @map("effective_from")
-  effectiveTo   DateTime? @map("effective_to")
-  jurisdiction  String?
-  createdAt     DateTime  @default(now()) @map("created_at")
-  updatedAt     DateTime  @updatedAt @map("updated_at")
-  deletedAt     DateTime? @map("deleted_at")
+    id            String    @id @default(cuid())
+    title         String
+    sourceUrl     String?   @map("source_url") @db.VarChar(2048)
+    effectiveFrom DateTime? @map("effective_from")
+    effectiveTo   DateTime? @map("effective_to")
+    jurisdiction  String?
+    createdAt     DateTime  @default(now()) @map("created_at")
+    updatedAt     DateTime  @updatedAt @map("updated_at")
+    deletedAt     DateTime? @map("deleted_at")
 
-  chunks LegalDocumentChunk[]
+    chunks LegalDocumentChunk[]
 
-  @@index([jurisdiction])
-  @@map("legal_sources")
+    @@index([jurisdiction])
+    @@map("legal_sources")
 }
 
 model LegalDocumentChunk {
-  id                String    @id @default(cuid())
-  sourceId          String    @map("source_id")
-  chunkIndex        Int       @map("chunk_index")
-  content           String    @db.Text
-  externalVectorId  String?   @map("external_vector_id")
-  createdAt         DateTime  @default(now()) @map("created_at")
-  updatedAt         DateTime  @updatedAt @map("updated_at")
-  deletedAt         DateTime? @map("deleted_at")
+    id               String    @id @default(cuid())
+    sourceId         String    @map("source_id")
+    chunkIndex       Int       @map("chunk_index")
+    content          String    @db.Text
+    externalVectorId String?   @map("external_vector_id")
+    createdAt        DateTime  @default(now()) @map("created_at")
+    updatedAt        DateTime  @updatedAt @map("updated_at")
+    deletedAt        DateTime? @map("deleted_at")
 
-  source LegalSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+    source LegalSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
 
-  @@unique([sourceId, chunkIndex])
-  @@index([sourceId])
-  @@map("legal_document_chunks")
+    @@unique([sourceId, chunkIndex])
+    @@index([sourceId])
+    @@map("legal_document_chunks")
 }
 
-model Prompt {
-  id        String   @id @default(cuid())
-  name      String   @unique
-  content   String   @db.LongText
-  taskType  TaskType @map("task_type")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+model ChatSession {
+    id        String   @id @default(uuid())
+    userId    String
+    title     String   @default("Cuộc trò chuyện mới")
+    createdAt DateTime @default(now()) @map("created_at")
+    updatedAt DateTime @updatedAt @map("updated_at")
 
-  taskConfigs TaskConfig[]
+    messages ChatMessage[]
 
-  @@index([taskType])
-  @@map("prompts")
+    @@map("chat_sessions")
 }
 
-model TaskConfig {
-  id              String   @id @default(cuid())
-  taskType        TaskType @unique @map("task_type")
-  modelName       String   @map("model_name")
-  defaultPromptId String   @map("default_prompt_id")
-  isActive        Boolean  @default(true) @map("is_active")
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @updatedAt @map("updated_at")
+model ChatMessage {
+    id        String   @id @default(uuid())
+    sessionId String   @map("session_id")
+    role      Role
+    content   String   @db.Text
+    metadata  Json?
+    createdAt DateTime @default(now()) @map("created_at")
 
-  defaultPrompt Prompt @relation(fields: [defaultPromptId], references: [id], onDelete: Restrict)
+    session ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
-  @@index([isActive])
-  @@index([defaultPromptId])
-  @@map("task_configs")
+    @@map("chat_messages")
 }
 
-model CrawlLog {
-  id          String         @id @default(cuid())
-  url         String
-  status      CrawlLogStatus
-  contentHash String?        @map("content_hash")
-  fullTextHash String?       @map("full_text_hash")
-  errorMessage String?       @map("error_message") @db.Text
-  startedAt   DateTime?      @map("started_at")
-  finishedAt  DateTime?      @map("finished_at")
-  createdAt   DateTime       @default(now()) @map("created_at")
-  updatedAt   DateTime       @updatedAt @map("updated_at")
-
-  @@index([url, createdAt])
-  @@index([status])
-  @@map("crawl_logs")
+enum Role {
+    user
+    assistant
+    system
 }

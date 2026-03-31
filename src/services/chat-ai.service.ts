@@ -1,83 +1,76 @@
-import { embed, generateText } from "ai";
-import { model, lawModel } from "../lib/ai.js";
 import { getSupabase } from "../lib/supabase.js";
-import { LawArticle } from "../schedules/crawler.js";
-import { GoogleEmbeddingModelOptions } from "@ai-sdk/google";
+import { LawArticle } from "../types/crawl.js";
+import aiService from "./ai.service.js";
 
-// Sử dụng interface bạn đã cung cấp
+class ChatAIService {
+    private supabase = getSupabase();
 
-export const chatWithLawyer = async (userQuery: string) => {
-    const supabase = getSupabase();
+    async ask(userQuestion: string) {
+        // * Generate vector
+        const queryVector = await aiService.generateEmbedding(userQuestion);
 
-    // 1. Chuyển câu hỏi thành vector
-    const { embedding } = await embed({
-        model: model,
-        value: userQuery,
-        providerOptions: {
-            google: {
-                outputDimensionality: 768,
-            } satisfies GoogleEmbeddingModelOptions,
-        },
-    });
+        // Search vector
+        const { data: contextArticles, error } = await this.supabase.rpc(
+            "match_law_articles",
+            {
+                query_embedding: queryVector,
+                match_threshold: 0.5,
+                match_count: 5,
+            },
+        );
 
-    // 2. Gọi RPC tìm kiếm (Kết quả trả về sẽ kèm theo trường similarity)
-    const { data: contextArticles, error } = (await supabase.rpc(
-        "match_law_articles",
-        {
-            query_embedding: embedding,
-            match_threshold: 0.2,
-            match_count: 5,
-        },
-    )) as { data: (LawArticle & { similarity: number })[] | null; error: any };
+        if (error || !contextArticles) {
+            throw new Error("Không thể truy xuất dữ liệu pháp luật.");
+        }
 
-    if (error) throw new Error(`Lỗi tìm kiếm: ${error.message}`);
-    if (!contextArticles || contextArticles.length === 0) {
+        // 3. Xây dựng ngữ cảnh (Context) từ kết quả tìm được
+        const contextString = (contextArticles as LawArticle[])
+            .map(
+                (article, index) =>
+                    `[Nguồn ${index + 1}]: ${article.law_title} - ${article.article_title}\nNội dung: ${article.content}`,
+            )
+            .join("\n\n---\n\n");
+
+        const systemPrompt = `
+                    Bạn là luật sư tư vấn chuyên nghiệp với nhiều năm kinh nghiệm. Nhiệm vụ của bạn là giải thích pháp luật một cách rõ ràng, dễ hiểu và chính xác cho người dùng.
+
+                    PHONG CÁCH TRẢ LỜI:
+                    - Giọng văn chuyên nghiệp nhưng gần gũi, dễ tiếp cận
+                    - Đi thẳng vào vấn đề, không lan man
+                    - Giải thích thuật ngữ pháp lý bằng ngôn ngữ đời thường khi cần
+                    - Trình bày có cấu trúc, xuống dòng rõ ràng
+                    - Đi thẳng vào vấn đề, KHÔNG mở đầu bằng "Chào bạn" hay giới thiệu bản thân
+                    - Không có đoạn "Tóm lại" hay kết luận lặp lại ý đã trình bày
+                    - Ví dụ nếu có thì chỉ 1 dòng, ngắn gọn
+
+                    NGUỒN DỮ LIỆU PHÁP LUẬT (ưu tiên sử dụng):
+                    ${contextString}
+
+                    QUY TẮC XỬ LÝ:
+                    1. Ưu tiên dùng dữ liệu pháp luật được cung cấp ở trên để trả lời.
+                    2. Nếu dữ liệu trên chưa đủ, hãy dùng kiến thức pháp luật Việt Nam của bạn để bổ sung — khi đó ghi rõ "(Theo kiến thức tổng hợp)" bên cạnh thông tin đó.
+                    3. Nếu hoàn toàn không có thông tin đáng tin cậy, hãy thành thật trả lời: "Tôi chưa có đủ thông tin chắc chắn về vấn đề này. Bạn nên tham khảo trực tiếp luật sư hoặc cơ quan có thẩm quyền."
+                    4. Tuyệt đối không bịa đặt số hiệu văn bản, điều khoản, hay con số cụ thể.
+
+                    ĐỊNH DẠNG TRẢ LỜI:
+                    [Phần trả lời chính — rõ ràng, có cấu trúc]
+
+                    ---
+                    📌 **Căn cứ pháp lý tham khảo:**
+                    - Điều X, [Tên Luật/Nghị định/Thông tư số ...]
+                    - Điều Y, [Tên Luật/Nghị định/Thông tư số ...]
+                    (Nếu không có căn cứ cụ thể thì ghi: "Dựa trên kiến thức pháp luật tổng hợp")
+
+                    Câu hỏi của người dùng:
+                    ${userQuestion}
+                    `;
+
+        const answer = await aiService.generateGoogleText(systemPrompt);
+
         return {
-            answer: "Tôi không tìm thấy thông tin luật pháp liên quan đến yêu cầu của bạn.",
-            sources: [],
+            answer,
         };
     }
+}
 
-    // 3. Xây dựng Context cho AI
-    const contextText = contextArticles
-        .map((a) => `[${a.article_title}]: ${a.content}`)
-        .join("\n\n");
-
-    const prompt = `
-        Bạn là "LawyerAI" - Trợ lý luật pháp Việt Nam. Phản hồi súc tích, đi thẳng vào vấn đề, giọng văn tự nhiên như một chuyên gia tư vấn trực tiếp, không rập khuôn.
-
-        DỮ LIỆU LUẬT (CONTEXT):
-        ---
-        ${contextText}
-        ---
-
-        CÂU HỎI: "${userQuery}"
-
-        YÊU CẦU PHẢN HỒI (NGẮN GỌN & TỰ NHIÊN):
-
-        1. **Phân tích nhanh**: 1-2 câu tóm gọn vấn đề của khách.
-        2. **Căn cứ pháp lý**: Trích đúng Điều, Khoản (Dùng quote >). Không viết lại cả đoạn luật nếu không cần thiết.
-        3. **Nói một cách dễ hiểu**: Giải thích "tiếng người" về quyền lợi/nghĩa vụ của khách. Tránh dùng từ hán việt nặng nề nếu có từ thuần việt thay thế.
-        4. **Chốt hạ**: Lời khuyên cụ thể phải làm gì ngay lúc này.
-
-        QUY TẮC CỨNG:
-        - Không mở bài/kết bài rườm rà (Bỏ qua: "Chào bạn", "Hy vọng câu trả lời giúp ích").
-        - Nếu Context không có thông tin phù hợp -> Trả lời: "Hiện tại dữ liệu của tôi chưa có quy định cụ thể về vấn đề này."
-        - Phông chữ: Sử dụng Markdown (In đậm các con số, thời hạn, mức phạt).
-
-        HÀNH ĐỘNG: PHÂN TÍCH VÀ TRẢ LỜI NGAY.
-        `;
-
-    const { text } = await generateText({
-        model: lawModel,
-        prompt: prompt,
-    });
-
-    return {
-        answer: text,
-        sources: contextArticles.map((a) => ({
-            title: a.article_title,
-            url: a.url,
-        })),
-    };
-};
+export default new ChatAIService();
