@@ -1,11 +1,5 @@
 import { z } from "zod";
-import {
-    CrawlLogStatus,
-    LawyerVerificationStatus,
-    ReportStatus,
-    TaskType,
-    UserRole,
-} from "../../generated/prisma/enums.js";
+import { CrawlLogStatus, LawyerVerificationStatus, ReportStatus, UserRole } from "../../generated/prisma/enums.js";
 
 export const adminStatsQuerySchema = z.object({});
 
@@ -86,13 +80,6 @@ const adminTaskOverrideSchema = z
         message: "At least one override field required",
     });
 
-export const adminCrawlDraftBodySchema = z.object({
-    url: z.string().url().max(2048),
-    overrides: z
-        .record(z.nativeEnum(TaskType), adminTaskOverrideSchema)
-        .optional(),
-});
-
 export const adminCrawlApproveBodySchema = z.object({
     crawlLogId: z.string().min(1),
     url: z.string().url().max(2048),
@@ -104,8 +91,5 @@ export const adminCrawlApproveBodySchema = z.object({
         tags: z.array(z.string().min(1).max(120)).max(100).default([]),
         summary: z.string().max(10_000).nullable().optional(),
     }),
-    desiredStatus: z
-        .enum([CrawlLogStatus.SUCCESS, CrawlLogStatus.FAILED])
-        .optional()
-        .default(CrawlLogStatus.SUCCESS),
+    desiredStatus: z.enum([CrawlLogStatus.SUCCESS, CrawlLogStatus.FAILED]).optional().default(CrawlLogStatus.SUCCESS),
 });

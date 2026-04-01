@@ -1,29 +1,28 @@
 import { getSupabase } from "../lib/supabase.js";
+import type { StreamTextResult } from "ai";
 import { LawArticle } from "../types/crawl.js";
 import aiService from "./ai.service.js";
+import chatMessageService from "./chat-message.service.js";
 
 class ChatAIService {
     private supabase = getSupabase();
 
-    async ask(userQuestion: string) {
+    async ask(sessionId: string, userQuestion: string): Promise<StreamTextResult<any, any>> {
         // * Generate vector
         const queryVector = await aiService.generateEmbedding(userQuestion);
 
-        // Search vector
-        const { data: contextArticles, error } = await this.supabase.rpc(
-            "match_law_articles",
-            {
-                query_embedding: queryVector,
-                match_threshold: 0.5,
-                match_count: 5,
-            },
-        );
+        // *Search vector
+        const { data: contextArticles, error } = await this.supabase.rpc("match_law_articles", {
+            query_embedding: queryVector,
+            match_threshold: 0.5,
+            match_count: 5,
+        });
 
         if (error || !contextArticles) {
             throw new Error("Không thể truy xuất dữ liệu pháp luật.");
         }
 
-        // 3. Xây dựng ngữ cảnh (Context) từ kết quả tìm được
+        // * Build context
         const contextString = (contextArticles as LawArticle[])
             .map(
                 (article, index) =>
@@ -65,11 +64,26 @@ class ChatAIService {
                     ${userQuestion}
                     `;
 
-        const answer = await aiService.generateGoogleText(systemPrompt);
+        // *Save message in SessionId
+        const answer = await aiService.generateStreamText(systemPrompt);
+        void (async () => {
+            try {
+                const finalText = await answer.text;
+                await chatMessageService.createMessage(sessionId, finalText, "assistant");
+            } catch (err: any) {
+                console.error("Lưu tin nhắn AI thất bại:", err);
+            }
+        })();
 
-        return {
-            answer,
-        };
+        return answer;
+    }
+
+    async getTitle(message: string) {
+        const result = await aiService.generateGoogleText(
+            `Tóm tắt câu hỏi sau thành một tiêu đề ngắn gọn (dưới 6 từ): "${message}"`,
+        );
+
+        return result;
     }
 }
 

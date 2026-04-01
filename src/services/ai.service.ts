@@ -1,5 +1,5 @@
 import { google, GoogleEmbeddingModelOptions } from "@ai-sdk/google";
-import { embed, embedMany, generateText } from "ai";
+import { embed, embedMany, generateText, streamText, StreamTextResult } from "ai";
 
 class AIService {
     async generateGoogleText(prompt: string, model = "gemini-2.5-flash") {
@@ -27,10 +27,7 @@ class AIService {
         return embedding;
     }
 
-    async generateBatchEmbeddings(
-        values: string[],
-        model = "gemini-embedding-001",
-    ) {
+    async generateBatchEmbeddings(values: string[], model = "gemini-embedding-001") {
         if (!values.length) return [];
 
         const modelEmbedding = google.embedding(model);
@@ -46,6 +43,15 @@ class AIService {
         });
 
         return embeddings;
+    }
+
+    async generateStreamText(prompt: string, model = "gemini-2.5-flash"): Promise<StreamTextResult<any, any>> {
+        const result = streamText({
+            model: google(model),
+            prompt,
+        });
+
+        return result;
     }
 }
 
