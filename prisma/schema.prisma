@@ -52,22 +52,6 @@ enum ReputationReason {
     BLOG_POST_LIKED
     BLOG_COMMENT_HELPFUL
     MOD_ADJUSTMENT
-    ADMIN_BONUS
-    ADMIN_PENALTY
-}
-
-enum ReportTargetType {
-    HUB_POST
-    HUB_COMMENT
-    BLOG_POST
-    USER
-    OVERSIGHT
-}
-
-enum ReportStatus {
-    OPEN
-    ACTIONED
-    DISMISSED
 }
 
 enum AuthProvider {
@@ -107,8 +91,6 @@ model User {
     assistantMessageRatings AssistantMessageRating[]
     reputationLedgers       ReputationLedger[]
     userContributionScore   UserContributionScore?
-    reportsFiled            Report[]                 @relation("ReportReporter")
-    reportsHandled          Report[]                 @relation("ReportHandler")
     blogPostsVerified       BlogPost[]               @relation("BlogPostVerifiedBy")
     refreshSessions         RefreshSession[]
     emailVerificationTokens EmailVerificationToken[]
@@ -523,63 +505,6 @@ model LeaderboardSnapshot {
     @@map("leaderboard_snapshots")
 }
 
-// --- Moderation ---
-
-model Report {
-    id              String           @id @default(cuid())
-    reporterId      String           @map("reporter_id")
-    targetType      ReportTargetType @map("target_type")
-    targetId        String           @map("target_id")
-    reason          String           @db.Text
-    status          ReportStatus     @default(OPEN)
-    handledByUserId String?          @map("handled_by_user_id")
-    createdAt       DateTime         @default(now()) @map("created_at")
-    updatedAt       DateTime         @updatedAt @map("updated_at")
-
-    reporter  User  @relation("ReportReporter", fields: [reporterId], references: [id], onDelete: Cascade)
-    handledBy User? @relation("ReportHandler", fields: [handledByUserId], references: [id], onDelete: SetNull)
-
-    @@index([status, createdAt])
-    @@index([targetType, targetId])
-    @@map("reports")
-}
-
-// --- RAG / legal corpus (optional) ---
-
-model LegalSource {
-    id            String    @id @default(cuid())
-    title         String
-    sourceUrl     String?   @map("source_url") @db.VarChar(2048)
-    effectiveFrom DateTime? @map("effective_from")
-    effectiveTo   DateTime? @map("effective_to")
-    jurisdiction  String?
-    createdAt     DateTime  @default(now()) @map("created_at")
-    updatedAt     DateTime  @updatedAt @map("updated_at")
-    deletedAt     DateTime? @map("deleted_at")
-
-    chunks LegalDocumentChunk[]
-
-    @@index([jurisdiction])
-    @@map("legal_sources")
-}
-
-model LegalDocumentChunk {
-    id               String    @id @default(cuid())
-    sourceId         String    @map("source_id")
-    chunkIndex       Int       @map("chunk_index")
-    content          String    @db.Text
-    externalVectorId String?   @map("external_vector_id")
-    createdAt        DateTime  @default(now()) @map("created_at")
-    updatedAt        DateTime  @updatedAt @map("updated_at")
-    deletedAt        DateTime? @map("deleted_at")
-
-    source LegalSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
-
-    @@unique([sourceId, chunkIndex])
-    @@index([sourceId])
-    @@map("legal_document_chunks")
-}
-
 model ChatSession {
     id        String   @id @default(uuid())
     userId    String
@@ -609,4 +534,22 @@ enum Role {
     user
     assistant
     system
+}
+
+model Queue {
+    id        String      @id @default(uuid())
+    type      String
+    payload   Json
+    status    QueueStatus
+    createdAt DateTime    @default(now())
+    updatedAt DateTime    @updatedAt
+
+    @@map("queues")
+}
+
+enum QueueStatus {
+    pending
+    processing
+    completed
+    error
 }

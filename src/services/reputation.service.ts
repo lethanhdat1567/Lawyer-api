@@ -144,62 +144,6 @@ export async function revokePublishedBlogScore(
     }
 }
 
-export type AdminReputationLedgerItemDto = {
-    id: string;
-    userId: string;
-    delta: number;
-    reason: ReputationReason;
-    refHubCommentId: string | null;
-    refBlogPostId: string | null;
-    refBlogCommentId: string | null;
-    createdAt: string;
-    username: string | null;
-    email: string;
-};
-
-export async function listAdminReputationLedger(params: {
-    skip: number;
-    take: number;
-    userId?: string;
-}): Promise<{ items: AdminReputationLedgerItemDto[]; total: number }> {
-    const prisma = getPrisma();
-    const where: Prisma.ReputationLedgerWhereInput = {
-        ...(params.userId ? { userId: params.userId } : {}),
-    };
-    const [total, rows] = await prisma.$transaction([
-        prisma.reputationLedger.count({ where }),
-        prisma.reputationLedger.findMany({
-            where,
-            orderBy: { createdAt: "desc" },
-            skip: params.skip,
-            take: params.take,
-            include: {
-                user: {
-                    select: {
-                        email: true,
-                        profile: { select: { username: true } },
-                    },
-                },
-            },
-        }),
-    ]);
-
-    const items: AdminReputationLedgerItemDto[] = rows.map((r) => ({
-        id: r.id,
-        userId: r.userId,
-        delta: r.delta,
-        reason: r.reason,
-        refHubCommentId: r.refHubCommentId,
-        refBlogPostId: r.refBlogPostId,
-        refBlogCommentId: r.refBlogCommentId,
-        createdAt: r.createdAt.toISOString(),
-        username: r.user.profile?.username ?? null,
-        email: r.user.email,
-    }));
-
-    return { items, total };
-}
-
 export async function listPublicContributorsLeaderboard(params: {
     limit: number;
 }): Promise<LeaderboardPublicResultDto> {

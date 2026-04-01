@@ -2,7 +2,6 @@ import { Router } from "express";
 import { blogAdminRouter } from "../blogAdmin.route.js";
 import { hubAdminRouter } from "../hubAdmin.route.js";
 import { hubCategoryAdminRouter } from "../hubCategoryAdmin.route.js";
-import { reputationAdminRouter } from "../reputationAdmin.route.js";
 import { adminRouter } from "../admin/index.js";
 import { authenticate, requireRole } from "../../middlewares/auth.js";
 import { UserRole } from "../../../generated/prisma/enums.js";
@@ -26,12 +25,6 @@ adminRoutesRouter.use(
     authenticate,
     requireRole(UserRole.ADMIN),
     blogAdminRouter,
-);
-adminRoutesRouter.use(
-    "/admin/reputation",
-    authenticate,
-    requireRole(UserRole.ADMIN),
-    reputationAdminRouter,
 );
 adminRoutesRouter.use(
     "/admin",

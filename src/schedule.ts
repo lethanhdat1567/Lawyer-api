@@ -1,12 +1,30 @@
 import "dotenv/config";
 import { CronJob } from "cron";
-import { runLawyerCrawler } from "./schedules/crawler.js";
+import { cleanUploadFile } from "./schedules/cleanUploadFile.js";
+import { connectPrisma } from "./lib/prisma.js";
+import backupDB from "./schedules/backupDB.js";
+
+connectPrisma();
 
 new CronJob(
-    "*/50 * * * * *",
+    "0 2 * * *",
     async function () {
         try {
-            await runLawyerCrawler();
+            await cleanUploadFile();
+        } catch (error) {
+            console.log(error);
+        }
+    },
+    null,
+    false,
+    "Asia/Ho_Chi_Minh",
+);
+
+new CronJob(
+    "0 3 * * *",
+    async function () {
+        try {
+            await backupDB();
         } catch (error) {
             console.log(error);
         }

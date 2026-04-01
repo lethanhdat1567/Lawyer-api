@@ -63,30 +63,11 @@ Tài liệu bám **tổng quan UI** (tra cứu AI, hub thảo luận, blog Verif
 
 | Bảng                                           | Mô tả                                                                                                                                                                        |
 | ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `reputation_ledger`                            | `user_id`, `delta` (INT), `reason` enum (`HUB_REPLY_HELPFUL`, `BLOG_QUALITY`, `MOD_ADJUSTMENT`, …); FK mềm optional: `ref_hub_comment_id`, `ref_blog_post_id`; `created_at`. |
+| `reputation_ledger`                            | `user_id`, `delta` (INT), `reason` enum (`HUB_REPLY_HELPFUL`, `BLOG_QUALITY`, `BLOG_POST_LIKED`, `BLOG_COMMENT_HELPFUL`, `MOD_ADJUSTMENT`); FK mềm optional: `ref_hub_comment_id`, `ref_blog_post_id`, `ref_blog_comment_id`; `created_at`. |
 | `user_contribution_scores` _(tùy chọn, cache)_ | `user_id` (unique), `score`, `updated_at` — cập nhật bằng job/app sau mỗi ghi ledger.                                                                                        |
 | `leaderboard_snapshots` _(tùy chọn)_           | `period_start`, `period_end`, `payload_json` (bảng xếp hạng đông lạnh theo tháng/quý).                                                                                       |
 
 Người dùng bật **`profiles.contributor_opt_out`** thì **không** đưa vào bảng công khai.
-
----
-
-## 6. Báo cáo & kiểm duyệt
-
-| Bảng      | Mô tả                                                                                                                                                                                                             |
-| --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `reports` | `reporter_id`, `target_type` (`HUB_POST`, `HUB_COMMENT`, `BLOG_POST`, `USER`, `OVERSIGHT`, …), `target_id` (cùng kiểu id), `reason`, `status`: `OPEN`, `ACTIONED`, `DISMISSED`, `handled_by_user_id`; timestamps. |
-
----
-
-## 7. Nguồn pháp (RAG — tùy, cùng MySQL)
-
-| Bảng                    | Mô tả                                                                          |
-| ----------------------- | ------------------------------------------------------------------------------ |
-| `legal_sources`         | `title`, `source_url`, `effective_from`, `effective_to`, `jurisdiction`, …     |
-| `legal_document_chunks` | `source_id`, `chunk_index`, `content` (TEXT), `external_vector_id` (nullable). |
-
-Vector có thể ở hệ khác; MySQL giữ nội dung/metadata để trích dẫn và audit.
 
 ---
 
@@ -106,7 +87,6 @@ users 1—* blog_posts *—* tags (qua blog_post_tags)
 users 1—* reputation_ledger
 users 1—0..1 user_contribution_scores
 
-users 1—* reports (reporter)
 ```
 
 ---

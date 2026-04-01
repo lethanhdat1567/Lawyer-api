@@ -1,11 +1,13 @@
 import type { RequestHandler } from "express";
 import adminStatsService from "../../services/admin/adminStats.service.js";
+import { adminStatsQuerySchema } from "../../validators/admin.schema.js";
 
 class AdminStatsController {
-    getStats: RequestHandler = async (_req, res, next) => {
+    getStats: RequestHandler = async (req, res, next) => {
         try {
-            const data = await adminStatsService.getStats();
-            res.success({ stats: data });
+            const q = adminStatsQuerySchema.parse(req.query);
+            const data = await adminStatsService.getStats(q);
+            res.success(data);
         } catch (e) {
             next(e);
         }

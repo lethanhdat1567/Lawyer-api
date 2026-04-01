@@ -15,8 +15,10 @@ import {
     rotateRefreshToken,
     type TokenPair,
 } from "./token.service.js";
-import { sendEmailVerification, sendPasswordResetCode } from "./email.service.js";
+import { sendPasswordResetCode } from "./email.service.js";
 import { type PublicUser, toPublicUser } from "./user.mapper.js";
+import { queueService } from "./queue.service.js";
+import { FORGOT_PASSWORD_QUEUE, VERIFY_EMAIL_QUEUE } from "../constants/queue.js";
 
 export type { PublicUser } from "./user.mapper.js";
 
@@ -44,21 +46,13 @@ class AuthService {
         return candidate;
     }
 
-    async registerUser(input: {
-        email: string;
-        password: string;
-        username: string;
-    }): Promise<RegisterResponse> {
+    async registerUser(input: { email: string; password: string; username: string }): Promise<RegisterResponse> {
         const prisma = getPrisma();
         const email = input.email.trim().toLowerCase();
         const username = input.username.trim();
 
         if (await prisma.user.findUnique({ where: { email } })) {
-            throw new HttpError(
-                HttpStatus.CONFLICT,
-                ERROR_MESSAGES[ErrorCode.EMAIL_TAKEN],
-                ErrorCode.EMAIL_TAKEN,
-            );
+            throw new HttpError(HttpStatus.CONFLICT, ERROR_MESSAGES[ErrorCode.EMAIL_TAKEN], ErrorCode.EMAIL_TAKEN);
         }
         if (await prisma.profile.findUnique({ where: { username } })) {
             throw new HttpError(
@@ -90,7 +84,10 @@ class AuthService {
             });
         });
 
-        await sendEmailVerification(email, rawVerifyToken);
+        await queueService.push(VERIFY_EMAIL_QUEUE, {
+            email,
+            rawToken: rawVerifyToken,
+        });
         return { user: toPublicUser(created), message: AuthCopy.REGISTER_CHECK_EMAIL };
     }
 
@@ -186,15 +183,11 @@ class AuthService {
                 expiresAt: new Date(Date.now() + RESET_MINUTES * 60 * 1000),
             },
         });
-        await sendPasswordResetCode(email, code);
+        await queueService.push(FORGOT_PASSWORD_QUEUE, { email, code });
         return AuthCopy.FORGOT_PASSWORD_SENT;
     }
 
-    async resetPasswordWithCode(input: {
-        email: string;
-        code: string;
-        newPassword: string;
-    }): Promise<void> {
+    async resetPasswordWithCode(input: { email: string; code: string; newPassword: string }): Promise<void> {
         const prisma = getPrisma();
         const email = input.email.trim().toLowerCase();
         const user = await prisma.user.findUnique({ where: { email } });
