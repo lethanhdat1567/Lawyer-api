@@ -6,6 +6,71 @@ import { HttpError } from "../../lib/httpError.js";
 import { getPrisma } from "../../lib/prisma.js";
 
 class AdminVerificationsService {
+    private readonly detailInclude = {
+        user: {
+            select: {
+                id: true,
+                email: true,
+                role: true,
+                profile: { select: { username: true, displayName: true } },
+            },
+        },
+        reviewedBy: {
+            select: {
+                email: true,
+                profile: { select: { username: true } },
+            },
+        },
+    } satisfies Prisma.LawyerVerificationInclude;
+
+    private toVerificationRow(
+        row: Prisma.LawyerVerificationGetPayload<{
+            include: {
+                user: {
+                    select: {
+                        id: true;
+                        email: true;
+                        role: true;
+                        profile: { select: { username: true; displayName: true } };
+                    };
+                };
+                reviewedBy: {
+                    select: {
+                        email: true;
+                        profile: { select: { username: true } };
+                    };
+                };
+            };
+        }>,
+    ) {
+        return {
+            id: row.id,
+            userId: row.userId,
+            status: row.status,
+            jurisdiction: row.jurisdiction,
+            barNumber: row.barNumber,
+            firmName: row.firmName,
+            note: row.note,
+            reviewedAt: row.reviewedAt?.toISOString() ?? null,
+            reviewedByUserId: row.reviewedByUserId,
+            createdAt: row.createdAt.toISOString(),
+            updatedAt: row.updatedAt.toISOString(),
+            user: {
+                id: row.user.id,
+                email: row.user.email,
+                role: row.user.role,
+                username: row.user.profile?.username ?? null,
+                displayName: row.user.profile?.displayName ?? null,
+            },
+            reviewedBy: row.reviewedBy
+                ? {
+                      email: row.reviewedBy.email,
+                      username: row.reviewedBy.profile?.username ?? null,
+                  }
+                : null,
+        };
+    }
+
     async listLawyerVerifications(params: {
         page: number;
         pageSize: number;
@@ -22,54 +87,13 @@ class AdminVerificationsService {
                 skip,
                 take: params.pageSize,
                 orderBy: { createdAt: "desc" },
-                include: {
-                    user: {
-                        select: {
-                            id: true,
-                            email: true,
-                            role: true,
-                            profile: { select: { username: true, displayName: true } },
-                        },
-                    },
-                    reviewedBy: {
-                        select: {
-                            email: true,
-                            profile: { select: { username: true } },
-                        },
-                    },
-                },
+                include: this.detailInclude,
             }),
             prisma.lawyerVerification.count({ where }),
         ]);
 
         return {
-            items: rows.map((r) => ({
-                id: r.id,
-                userId: r.userId,
-                status: r.status,
-                jurisdiction: r.jurisdiction,
-                barNumber: r.barNumber,
-                firmName: r.firmName,
-                evidenceJson: r.evidenceJson,
-                note: r.note,
-                reviewedAt: r.reviewedAt?.toISOString() ?? null,
-                reviewedByUserId: r.reviewedByUserId,
-                createdAt: r.createdAt.toISOString(),
-                updatedAt: r.updatedAt.toISOString(),
-                user: {
-                    id: r.user.id,
-                    email: r.user.email,
-                    role: r.user.role,
-                    username: r.user.profile?.username ?? null,
-                    displayName: r.user.profile?.displayName ?? null,
-                },
-                reviewedBy: r.reviewedBy
-                    ? {
-                          email: r.reviewedBy.email,
-                          username: r.reviewedBy.profile?.username ?? null,
-                      }
-                    : null,
-            })),
+            items: rows.map((r) => this.toVerificationRow(r)),
             total,
             page: params.page,
             pageSize: params.pageSize,
@@ -161,16 +185,7 @@ class AdminVerificationsService {
 
         const updated = await prisma.lawyerVerification.findFirst({
             where: { id: verificationId },
-            include: {
-                user: {
-                    select: {
-                        id: true,
-                        email: true,
-                        role: true,
-                        profile: { select: { username: true, displayName: true } },
-                    },
-                },
-            },
+            include: this.detailInclude,
         });
         if (!updated) {
             throw new HttpError(
@@ -181,20 +196,7 @@ class AdminVerificationsService {
         }
 
         return {
-            verification: {
-                id: updated.id,
-                userId: updated.userId,
-                status: updated.status,
-                note: updated.note,
-                reviewedAt: updated.reviewedAt?.toISOString() ?? null,
-                user: {
-                    id: updated.user.id,
-                    email: updated.user.email,
-                    role: updated.user.role,
-                    username: updated.user.profile?.username ?? null,
-                    displayName: updated.user.profile?.displayName ?? null,
-                },
-            },
+            verification: this.toVerificationRow(updated),
         };
     }
 }

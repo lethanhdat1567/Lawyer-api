@@ -49,6 +49,7 @@ enum BlogPostStatus {
 enum ReputationReason {
     HUB_REPLY_HELPFUL
     BLOG_QUALITY
+    BLOG_POST_LIKED
     BLOG_COMMENT_HELPFUL
     MOD_ADJUSTMENT
     ADMIN_BONUS
@@ -201,7 +202,6 @@ model LawyerVerification {
     jurisdiction     String?
     barNumber        String?                  @map("bar_number")
     firmName         String?                  @map("firm_name")
-    evidenceJson     Json?                    @map("evidence_json")
     reviewedByUserId String?                  @map("reviewed_by_user_id")
     reviewedAt       DateTime?                @map("reviewed_at")
     note             String?                  @db.Text

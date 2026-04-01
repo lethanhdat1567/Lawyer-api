@@ -188,6 +188,27 @@ function mapCategory(c: HubCategory | null): HubCategoryDto | null {
     };
 }
 
+async function getActiveHubCategoryById(id: string): Promise<HubCategory | null> {
+    const prisma = getPrisma();
+    return prisma.hubCategory.findFirst({
+        where: { id, deletedAt: null },
+    });
+}
+
+async function getActiveHubCategoryBySlug(
+    slug: string,
+    excludeId?: string,
+): Promise<HubCategory | null> {
+    const prisma = getPrisma();
+    return prisma.hubCategory.findFirst({
+        where: {
+            slug,
+            deletedAt: null,
+            ...(excludeId ? { NOT: { id: excludeId } } : {}),
+        },
+    });
+}
+
 type PostRowList = HubPost & {
     category: HubCategory | null;
     author: User & { profile: Profile | null };
@@ -216,6 +237,115 @@ export async function listHubCategories(): Promise<HubCategoryDto[]> {
         orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
     });
     return rows.map((c) => mapCategory(c)!);
+}
+
+export async function adminCreateHubCategory(input: {
+    slug: string;
+    name: string;
+    sortOrder: number;
+}): Promise<HubCategoryDto> {
+    const prisma = getPrisma();
+    const slug = input.slug.trim();
+    const existing = await getActiveHubCategoryBySlug(slug);
+    if (existing) {
+        throw new HttpError(
+            HttpStatus.CONFLICT,
+            "A Hub category with this slug already exists",
+            ErrorCode.VALIDATION_ERROR,
+        );
+    }
+
+    const category = await prisma.hubCategory.create({
+        data: {
+            slug,
+            name: input.name.trim(),
+            sortOrder: input.sortOrder,
+        },
+    });
+
+    return mapCategory(category)!;
+}
+
+export async function adminUpdateHubCategory(
+    categoryId: string,
+    input: {
+        slug?: string;
+        name?: string;
+        sortOrder?: number;
+    },
+): Promise<HubCategoryDto> {
+    const prisma = getPrisma();
+    const existing = await getActiveHubCategoryById(categoryId);
+    if (!existing) {
+        throw new HttpError(
+            HttpStatus.NOT_FOUND,
+            "Category not found",
+            ErrorCode.NOT_FOUND,
+        );
+    }
+
+    if (input.slug?.trim()) {
+        const requestedSlug = input.slug.trim();
+        if (requestedSlug !== existing.slug) {
+            const slugTaken = await getActiveHubCategoryBySlug(
+                requestedSlug,
+                categoryId,
+            );
+            if (slugTaken) {
+                throw new HttpError(
+                    HttpStatus.CONFLICT,
+                    "A Hub category with this slug already exists",
+                    ErrorCode.VALIDATION_ERROR,
+                );
+            }
+        }
+    }
+
+    const category = await prisma.hubCategory.update({
+        where: { id: categoryId },
+        data: {
+            ...(input.slug !== undefined ? { slug: input.slug.trim() } : {}),
+            ...(input.name !== undefined ? { name: input.name.trim() } : {}),
+            ...(input.sortOrder !== undefined
+                ? { sortOrder: input.sortOrder }
+                : {}),
+        },
+    });
+
+    return mapCategory(category)!;
+}
+
+export async function adminSoftDeleteHubCategory(
+    categoryId: string,
+): Promise<void> {
+    const prisma = getPrisma();
+    const existing = await getActiveHubCategoryById(categoryId);
+    if (!existing) {
+        throw new HttpError(
+            HttpStatus.NOT_FOUND,
+            "Category not found",
+            ErrorCode.NOT_FOUND,
+        );
+    }
+
+    const activePostCount = await prisma.hubPost.count({
+        where: {
+            categoryId,
+            deletedAt: null,
+        },
+    });
+    if (activePostCount > 0) {
+        throw new HttpError(
+            HttpStatus.CONFLICT,
+            "Category is in use by active posts",
+            ErrorCode.VALIDATION_ERROR,
+        );
+    }
+
+    await prisma.hubCategory.update({
+        where: { id: categoryId },
+        data: { deletedAt: new Date() },
+    });
 }
 
 export async function listPublishedHubPosts(params: {

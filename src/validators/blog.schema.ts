@@ -79,9 +79,25 @@ export const blogAdminCreateSchema = blogMeCreateSchema.extend({
     authorId: z.string().cuid(),
 });
 
+export const blogTagAdminCreateSchema = z.object({
+    name: z.string().trim().min(1).max(191),
+    slug: z.string().trim().min(1).max(191).optional(),
+});
+
+export const blogTagAdminPatchSchema = z
+    .object({
+        name: z.string().trim().min(1).max(191).optional(),
+        slug: z.string().trim().min(1).max(191).optional(),
+    })
+    .refine((value) => value.name !== undefined || value.slug !== undefined, {
+        message: "At least one field is required",
+    });
+
 export const blogAdminPatchSchema = blogMePatchSchema.extend({
     authorId: z.string().cuid().optional(),
-    isVerified: z.boolean().optional(),
+});
+
+export const blogAdminVerificationPatchSchema = z.object({
+    isVerified: z.boolean(),
     verificationNotes: z.string().max(10000).nullable().optional(),
-    legalCorpusVersion: z.string().max(191).nullable().optional(),
 });

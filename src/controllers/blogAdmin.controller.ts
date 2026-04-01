@@ -6,9 +6,59 @@ import {
     blogAdminCreateSchema,
     blogAdminListQuerySchema,
     blogAdminPatchSchema,
+    blogAdminVerificationPatchSchema,
+    blogTagAdminCreateSchema,
+    blogTagAdminPatchSchema,
 } from "../validators/blog.schema.js";
 
 class BlogAdminController {
+    postAdminBlogTag: RequestHandler = async (req, res, next) => {
+        try {
+            const body = blogTagAdminCreateSchema.parse(req.body);
+            const tag = await blogAdminService.createTag(body);
+            res.success({ tag }, 201);
+        } catch (e) {
+            next(e);
+        }
+    };
+
+    patchAdminBlogTag: RequestHandler = async (req, res, next) => {
+        try {
+            const tagId = String(req.params.id ?? "").trim();
+            if (!tagId) {
+                res.error({
+                    code: ErrorCode.VALIDATION_ERROR,
+                    message: "Missing tag id",
+                    statusCode: HttpStatus.BAD_REQUEST,
+                });
+                return;
+            }
+            const body = blogTagAdminPatchSchema.parse(req.body);
+            const tag = await blogAdminService.updateTag(tagId, body);
+            res.success({ tag });
+        } catch (e) {
+            next(e);
+        }
+    };
+
+    deleteAdminBlogTag: RequestHandler = async (req, res, next) => {
+        try {
+            const tagId = String(req.params.id ?? "").trim();
+            if (!tagId) {
+                res.error({
+                    code: ErrorCode.VALIDATION_ERROR,
+                    message: "Missing tag id",
+                    statusCode: HttpStatus.BAD_REQUEST,
+                });
+                return;
+            }
+            await blogAdminService.deleteTag(tagId);
+            res.success({ ok: true });
+        } catch (e) {
+            next(e);
+        }
+    };
+
     getAdminBlogPostByIdHandler: RequestHandler = async (req, res, next) => {
         try {
             const postId = String(req.params.id ?? "").trim();
@@ -104,10 +154,37 @@ class BlogAdminController {
                 slug: body.slug,
                 authorId: body.authorId,
                 tagIds: body.tagIds,
-                isVerified: body.isVerified,
-                verificationNotes: body.verificationNotes,
-                legalCorpusVersion: body.legalCorpusVersion,
             });
+            res.success({ post });
+        } catch (e) {
+            next(e);
+        }
+    };
+
+    patchAdminBlogPostVerification: RequestHandler = async (req, res, next) => {
+        try {
+            if (!req.user) {
+                res.unauthorization();
+                return;
+            }
+            const postId = String(req.params.id ?? "").trim();
+            if (!postId) {
+                res.error({
+                    code: ErrorCode.VALIDATION_ERROR,
+                    message: "Missing post id",
+                    statusCode: HttpStatus.BAD_REQUEST,
+                });
+                return;
+            }
+            const body = blogAdminVerificationPatchSchema.parse(req.body);
+            const post = await blogAdminService.updatePostVerification(
+                postId,
+                req.user.id,
+                {
+                    isVerified: body.isVerified,
+                    verificationNotes: body.verificationNotes,
+                },
+            );
             res.success({ post });
         } catch (e) {
             next(e);

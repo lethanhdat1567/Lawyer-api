@@ -1,6 +1,9 @@
 import type { Prisma } from "../../generated/prisma/client.js";
 import { ReputationReason, UserRole } from "../../generated/prisma/enums.js";
-import { DELTA_BLOG_FIRST_PUBLISH } from "../constants/reputation.constants.js";
+import {
+    DELTA_BLOG_POST_LIKED,
+    DELTA_BLOG_PUBLISHED,
+} from "../constants/reputation.constants.js";
 import { ErrorCode } from "../constants/errorCodes.js";
 import { HttpStatus } from "../constants/httpStatus.js";
 import { HttpError } from "../lib/httpError.js";
@@ -99,64 +102,46 @@ export async function applyReputationDelta(input: {
     return { score: raw };
 }
 
-/** Thưởng xuất bản blog lần đầu (idempotent theo bài + tác giả tại thời điểm thưởng). */
-export async function tryAwardBlogFirstPublish(
+export async function awardPublishedBlogScore(
     authorId: string,
     blogPostId: string,
+    likeCount: number,
 ): Promise<void> {
-    const prisma = getPrisma();
-    const d = DELTA_BLOG_FIRST_PUBLISH;
-    const already = await prisma.reputationLedger.findFirst({
-        where: {
-            userId: authorId,
-            reason: ReputationReason.BLOG_QUALITY,
-            refBlogPostId: blogPostId,
-            delta: d,
-        },
-        select: { id: true },
-    });
-    if (already) return;
     await applyReputationDelta({
         userId: authorId,
-        delta: d,
+        delta: DELTA_BLOG_PUBLISHED,
         reason: ReputationReason.BLOG_QUALITY,
         refBlogPostId: blogPostId,
     });
+    if (likeCount > 0) {
+        await applyReputationDelta({
+            userId: authorId,
+            delta: likeCount * DELTA_BLOG_POST_LIKED,
+            reason: ReputationReason.BLOG_POST_LIKED,
+            refBlogPostId: blogPostId,
+        });
+    }
 }
 
-/** Thu hồi thưởng xuất bản khi chuyển PUBLISHED → DRAFT hoặc soft-delete (idempotent). */
-export async function tryRevokeBlogFirstPublish(
+export async function revokePublishedBlogScore(
     authorId: string,
     blogPostId: string,
+    likeCount: number,
 ): Promise<void> {
-    const prisma = getPrisma();
-    const d = DELTA_BLOG_FIRST_PUBLISH;
-    const awarded = await prisma.reputationLedger.findFirst({
-        where: {
-            userId: authorId,
-            reason: ReputationReason.BLOG_QUALITY,
-            refBlogPostId: blogPostId,
-            delta: d,
-        },
-        select: { id: true },
-    });
-    if (!awarded) return;
-    const revoked = await prisma.reputationLedger.findFirst({
-        where: {
-            userId: authorId,
-            reason: ReputationReason.BLOG_QUALITY,
-            refBlogPostId: blogPostId,
-            delta: -d,
-        },
-        select: { id: true },
-    });
-    if (revoked) return;
     await applyReputationDelta({
         userId: authorId,
-        delta: -d,
+        delta: -DELTA_BLOG_PUBLISHED,
         reason: ReputationReason.BLOG_QUALITY,
         refBlogPostId: blogPostId,
     });
+    if (likeCount > 0) {
+        await applyReputationDelta({
+            userId: authorId,
+            delta: -(likeCount * DELTA_BLOG_POST_LIKED),
+            reason: ReputationReason.BLOG_POST_LIKED,
+            refBlogPostId: blogPostId,
+        });
+    }
 }
 
 export type AdminReputationLedgerItemDto = {

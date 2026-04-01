@@ -18,7 +18,7 @@ Tài liệu bám **tổng quan UI** (tra cứu AI, hub thảo luận, blog Verif
 | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `users`                | `id`, `email` (unique), `password_hash` (nullable nếu OAuth sau), `email_verified_at`, `role` enum: `USER`, `VERIFIED_LAWYER`, `ADMIN`.                                                                                                          |
 | `profiles`             | `user_id` (FK unique): `username` (unique), `display_name`, `avatar_url`, `bio`, `contributor_opt_out` (boolean — không tham gia xếp hạng).                                                                                                      |
-| `lawyer_verifications` | `user_id`, `status`: `PENDING`, `APPROVED`, `REJECTED`, `REVOKED`; `jurisdiction`, `bar_number`, `firm_name`; `evidence_json` hoặc bảng file đính kèm; `reviewed_by_user_id`, `reviewed_at`, `note`; timestamps + `deleted_at` nếu cần ẩn hồ sơ. |
+| `lawyer_verifications` | `user_id`, `status`: `PENDING`, `APPROVED`, `REJECTED`, `REVOKED`; `jurisdiction`, `bar_number`, `firm_name`; `reviewed_by_user_id`, `reviewed_at`, `note`; timestamps + `deleted_at` nếu cần ẩn hồ sơ. |
 
 **Luồng:** khi `APPROVED`, cập nhật `users.role = VERIFIED_LAWYER` trong cùng **transaction** với bản ghi verification.
 

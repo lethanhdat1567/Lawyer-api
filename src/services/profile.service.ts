@@ -13,6 +13,7 @@ export type PublicProfileByUsername = {
     displayName: string | null;
     avatarUrl: string | null;
     bio: string | null;
+    role: string;
 };
 
 class ProfileService {
@@ -35,6 +36,7 @@ class ProfileService {
             displayName: profile.displayName,
             avatarUrl: profile.avatarUrl,
             bio: profile.bio,
+            role: profile.user.role,
         };
     }
 

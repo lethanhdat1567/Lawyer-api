@@ -5,15 +5,17 @@ import type {
     Tag,
     User,
 } from "../../generated/prisma/client.js";
-import { BlogPostStatus } from "../../generated/prisma/enums.js";
+import { BlogPostStatus, ReputationReason } from "../../generated/prisma/enums.js";
 import { ErrorCode } from "../constants/errorCodes.js";
 import { HttpStatus } from "../constants/httpStatus.js";
 import { ERROR_MESSAGES } from "../constants/messages.js";
+import { DELTA_BLOG_POST_LIKED } from "../constants/reputation.constants.js";
 import { HttpError } from "../lib/httpError.js";
 import { getPrisma } from "../lib/prisma.js";
 import {
-    tryAwardBlogFirstPublish,
-    tryRevokeBlogFirstPublish,
+    applyReputationDelta,
+    awardPublishedBlogScore,
+    revokePublishedBlogScore,
 } from "./reputation.service.js";
 import { slugifyTitle } from "./hub.service.js";
 
@@ -141,6 +143,35 @@ function mapTags(rows: { tag: Tag }[]): BlogTagDto[] {
         slug: r.tag.slug,
         name: r.tag.name,
     }));
+}
+
+function mapTag(tag: Tag): BlogTagDto {
+    return {
+        id: tag.id,
+        slug: tag.slug,
+        name: tag.name,
+    };
+}
+
+async function getActiveBlogTagById(tagId: string): Promise<Tag | null> {
+    const prisma = getPrisma();
+    return prisma.tag.findFirst({
+        where: { id: tagId, deletedAt: null },
+    });
+}
+
+async function getActiveBlogTagBySlug(
+    slug: string,
+    excludeId?: string,
+): Promise<Tag | null> {
+    const prisma = getPrisma();
+    return prisma.tag.findFirst({
+        where: {
+            slug,
+            deletedAt: null,
+            ...(excludeId ? { NOT: { id: excludeId } } : {}),
+        },
+    });
 }
 
 type BlogPostRowList = BlogPost & {
@@ -293,13 +324,121 @@ async function replaceBlogPostTags(
     ]);
 }
 
+async function getBlogPostLikeCount(postId: string): Promise<number> {
+    const prisma = getPrisma();
+    return prisma.blogPostLike.count({ where: { blogPostId: postId } });
+}
+
 export async function listPublicBlogTags(): Promise<BlogTagDto[]> {
     const prisma = getPrisma();
     const rows = await prisma.tag.findMany({
         where: { deletedAt: null },
         orderBy: [{ name: "asc" }],
     });
-    return rows.map((t) => ({ id: t.id, slug: t.slug, name: t.name }));
+    return rows.map(mapTag);
+}
+
+export async function adminCreateBlogTag(input: {
+    name: string;
+    slug?: string;
+}): Promise<BlogTagDto> {
+    const prisma = getPrisma();
+    const name = input.name.trim();
+    const requestedSlug = input.slug?.trim();
+    const slug = requestedSlug || slugifyTitle(name);
+
+    const existing = await getActiveBlogTagBySlug(slug);
+    if (existing) {
+        throw new HttpError(
+            HttpStatus.CONFLICT,
+            "Tag slug already exists",
+            ErrorCode.VALIDATION_ERROR,
+        );
+    }
+
+    const tag = await prisma.tag.create({
+        data: {
+            name,
+            slug,
+        },
+    });
+
+    return mapTag(tag);
+}
+
+export async function adminUpdateBlogTag(
+    tagId: string,
+    input: {
+        name?: string;
+        slug?: string;
+    },
+): Promise<BlogTagDto> {
+    const prisma = getPrisma();
+    const existing = await getActiveBlogTagById(tagId);
+    if (!existing) {
+        throw new HttpError(
+            HttpStatus.NOT_FOUND,
+            "Tag not found",
+            ErrorCode.NOT_FOUND,
+        );
+    }
+
+    if (input.slug?.trim()) {
+        const requestedSlug = input.slug.trim();
+        if (requestedSlug !== existing.slug) {
+            const slugTaken = await getActiveBlogTagBySlug(requestedSlug, tagId);
+            if (slugTaken) {
+                throw new HttpError(
+                    HttpStatus.CONFLICT,
+                    "Tag slug already exists",
+                    ErrorCode.VALIDATION_ERROR,
+                );
+            }
+        }
+    }
+
+    const tag = await prisma.tag.update({
+        where: { id: tagId },
+        data: {
+            ...(input.name !== undefined ? { name: input.name.trim() } : {}),
+            ...(input.slug !== undefined ? { slug: input.slug.trim() } : {}),
+        },
+    });
+
+    return mapTag(tag);
+}
+
+export async function adminSoftDeleteBlogTag(tagId: string): Promise<void> {
+    const prisma = getPrisma();
+    const existing = await getActiveBlogTagById(tagId);
+    if (!existing) {
+        throw new HttpError(
+            HttpStatus.NOT_FOUND,
+            "Tag not found",
+            ErrorCode.NOT_FOUND,
+        );
+    }
+
+    const activePostCount = await prisma.blogPostTag.count({
+        where: {
+            tagId,
+            blogPost: {
+                deletedAt: null,
+            },
+        },
+    });
+    if (activePostCount > 0) {
+        throw new HttpError(
+            HttpStatus.CONFLICT,
+            "Tag is in use by active posts",
+            ErrorCode.VALIDATION_ERROR,
+        );
+    }
+
+    await prisma.tag.update({
+        where: { id: tagId },
+        data: { deletedAt: new Date() },
+    });
 }
 
 export async function listPublishedBlogPosts(params: {
@@ -484,13 +623,13 @@ export async function createBlogPostForUser(
             include: blogPostIncludeListWithCounts,
         });
         if (status === BlogPostStatus.PUBLISHED) {
-            await tryAwardBlogFirstPublish(userId, post.id);
+            await awardPublishedBlogScore(userId, post.id, 0);
         }
         return mapPostListItem(reloaded as BlogPostRowList);
     }
 
     if (status === BlogPostStatus.PUBLISHED) {
-        await tryAwardBlogFirstPublish(userId, post.id);
+        await awardPublishedBlogScore(userId, post.id, 0);
     }
     return mapPostListItem(post as BlogPostRowList);
 }
@@ -552,12 +691,7 @@ export async function updateMyBlogPost(
 
     const prevStatus = existing.status;
     const nextStatus = input.status !== undefined ? input.status : prevStatus;
-    if (
-        prevStatus === BlogPostStatus.PUBLISHED &&
-        nextStatus === BlogPostStatus.DRAFT
-    ) {
-        await tryRevokeBlogFirstPublish(existing.authorId, postId);
-    }
+    const likeCount = await getBlogPostLikeCount(postId);
 
     await prisma.blogPost.update({
         where: { id: postId },
@@ -581,7 +715,12 @@ export async function updateMyBlogPost(
         prevStatus !== BlogPostStatus.PUBLISHED &&
         nextStatus === BlogPostStatus.PUBLISHED
     ) {
-        await tryAwardBlogFirstPublish(existing.authorId, postId);
+        await awardPublishedBlogScore(existing.authorId, postId, likeCount);
+    } else if (
+        prevStatus === BlogPostStatus.PUBLISHED &&
+        nextStatus !== BlogPostStatus.PUBLISHED
+    ) {
+        await revokePublishedBlogScore(existing.authorId, postId, likeCount);
     }
 
     const reloaded = await prisma.blogPost.findFirst({
@@ -607,7 +746,8 @@ export async function softDeleteMyBlogPost(
         );
     }
     if (existing.status === BlogPostStatus.PUBLISHED) {
-        await tryRevokeBlogFirstPublish(existing.authorId, postId);
+        const likeCount = await getBlogPostLikeCount(postId);
+        await revokePublishedBlogScore(existing.authorId, postId, likeCount);
     }
     await prisma.blogPost.update({
         where: { id: postId },
@@ -768,14 +908,14 @@ export async function adminCreateBlogPost(input: {
         include: blogPostIncludeListWithCounts,
     });
     if (status === BlogPostStatus.PUBLISHED) {
-        await tryAwardBlogFirstPublish(input.authorId, post.id);
+        await awardPublishedBlogScore(input.authorId, post.id, 0);
     }
     return mapPostListItem(reloaded as BlogPostRowList);
 }
 
 export async function adminUpdateBlogPost(
     postId: string,
-    adminUserId: string,
+    _adminUserId: string,
     input: {
         title?: string;
         body?: string;
@@ -785,9 +925,6 @@ export async function adminUpdateBlogPost(
         slug?: string | null;
         authorId?: string;
         tagIds?: string[];
-        isVerified?: boolean;
-        verificationNotes?: string | null;
-        legalCorpusVersion?: string | null;
     },
 ): Promise<BlogPostListItemDto> {
     const prisma = getPrisma();
@@ -837,18 +974,6 @@ export async function adminUpdateBlogPost(
                 : String(input.excerpt).trim()
             : undefined;
 
-    let verifiedAt: Date | null | undefined;
-    let verifiedByUserId: string | null | undefined;
-    if (input.isVerified !== undefined) {
-        if (input.isVerified) {
-            verifiedAt = new Date();
-            verifiedByUserId = adminUserId;
-        } else {
-            verifiedAt = null;
-            verifiedByUserId = null;
-        }
-    }
-
     const thumb =
         input.thumbnailUrl === undefined
             ? undefined
@@ -860,12 +985,7 @@ export async function adminUpdateBlogPost(
     const nextStatus = input.status !== undefined ? input.status : prevStatus;
     const nextAuthorId =
         input.authorId !== undefined ? input.authorId : existing.authorId;
-    if (
-        prevStatus === BlogPostStatus.PUBLISHED &&
-        nextStatus === BlogPostStatus.DRAFT
-    ) {
-        await tryRevokeBlogFirstPublish(existing.authorId, postId);
-    }
+    const likeCount = await getBlogPostLikeCount(postId);
 
     await prisma.blogPost.update({
         where: { id: postId },
@@ -881,19 +1001,6 @@ export async function adminUpdateBlogPost(
                 ? { authorId: input.authorId }
                 : {}),
             ...(thumb !== undefined ? { thumbnailUrl: thumb } : {}),
-            ...(input.verificationNotes !== undefined
-                ? { verificationNotes: input.verificationNotes }
-                : {}),
-            ...(input.legalCorpusVersion !== undefined
-                ? { legalCorpusVersion: input.legalCorpusVersion }
-                : {}),
-            ...(input.isVerified !== undefined
-                ? {
-                      isVerified: input.isVerified,
-                      verifiedAt,
-                      verifiedByUserId,
-                  }
-                : {}),
         },
     });
 
@@ -905,7 +1012,19 @@ export async function adminUpdateBlogPost(
         prevStatus !== BlogPostStatus.PUBLISHED &&
         nextStatus === BlogPostStatus.PUBLISHED
     ) {
-        await tryAwardBlogFirstPublish(nextAuthorId, postId);
+        await awardPublishedBlogScore(nextAuthorId, postId, likeCount);
+    } else if (
+        prevStatus === BlogPostStatus.PUBLISHED &&
+        nextStatus !== BlogPostStatus.PUBLISHED
+    ) {
+        await revokePublishedBlogScore(existing.authorId, postId, likeCount);
+    } else if (
+        prevStatus === BlogPostStatus.PUBLISHED &&
+        nextStatus === BlogPostStatus.PUBLISHED &&
+        existing.authorId !== nextAuthorId
+    ) {
+        await revokePublishedBlogScore(existing.authorId, postId, likeCount);
+        await awardPublishedBlogScore(nextAuthorId, postId, likeCount);
     }
 
     const reloaded = await prisma.blogPost.findFirst({
@@ -913,6 +1032,61 @@ export async function adminUpdateBlogPost(
         include: blogPostIncludeListWithCounts,
     });
     return mapPostListItem(reloaded as BlogPostRowList);
+}
+
+export async function adminUpdateBlogPostVerification(
+    postId: string,
+    adminUserId: string,
+    input: {
+        isVerified: boolean;
+        verificationNotes?: string | null;
+    },
+): Promise<BlogPostDetailDto> {
+    const prisma = getPrisma();
+    const existing = await prisma.blogPost.findFirst({
+        where: { id: postId, deletedAt: null },
+    });
+    if (!existing) {
+        throw new HttpError(
+            HttpStatus.NOT_FOUND,
+            "Post not found",
+            ErrorCode.NOT_FOUND,
+        );
+    }
+
+    const normalizedNotes =
+        input.verificationNotes === undefined
+            ? undefined
+            : input.verificationNotes === null ||
+                String(input.verificationNotes).trim() === ""
+              ? null
+              : String(input.verificationNotes).trim();
+
+    const verificationData = input.isVerified
+        ? {
+              isVerified: true,
+              verifiedAt: existing.verifiedAt ?? new Date(),
+              verifiedByUserId: existing.isVerified
+                  ? existing.verifiedByUserId ?? adminUserId
+                  : adminUserId,
+              ...(normalizedNotes !== undefined
+                  ? { verificationNotes: normalizedNotes }
+                  : {}),
+          }
+        : {
+              isVerified: false,
+              verifiedAt: null,
+              verifiedByUserId: null,
+              verificationNotes: null,
+          };
+
+    const updated = await prisma.blogPost.update({
+        where: { id: postId },
+        data: verificationData,
+        include: blogPostIncludeDetail,
+    });
+
+    return mapPostDetail(updated as BlogPostRowDetail);
 }
 
 export async function adminSoftDeleteBlogPost(postId: string): Promise<void> {
@@ -928,7 +1102,8 @@ export async function adminSoftDeleteBlogPost(postId: string): Promise<void> {
         );
     }
     if (existing.status === BlogPostStatus.PUBLISHED) {
-        await tryRevokeBlogFirstPublish(existing.authorId, postId);
+        const likeCount = await getBlogPostLikeCount(postId);
+        await revokePublishedBlogScore(existing.authorId, postId, likeCount);
     }
     await prisma.blogPost.update({
         where: { id: postId },
@@ -1082,6 +1257,28 @@ export async function toggleBlogPostLike(
 ): Promise<{ liked: boolean; likeCount: number }> {
     await assertPublishedBlogPostForComments(blogPostId);
     const prisma = getPrisma();
+    const post = await prisma.blogPost.findFirst({
+        where: {
+            id: blogPostId,
+            deletedAt: null,
+            status: BlogPostStatus.PUBLISHED,
+        },
+        select: { id: true, authorId: true },
+    });
+    if (!post) {
+        throw new HttpError(
+            HttpStatus.NOT_FOUND,
+            "Post not found",
+            ErrorCode.NOT_FOUND,
+        );
+    }
+    if (post.authorId === userId) {
+        throw new HttpError(
+            HttpStatus.CONFLICT,
+            "Cannot like your own post",
+            ErrorCode.VALIDATION_ERROR,
+        );
+    }
 
     const existing = await prisma.blogPostLike.findUnique({
         where: {
@@ -1093,9 +1290,21 @@ export async function toggleBlogPostLike(
         await prisma.blogPostLike.delete({
             where: { userId_blogPostId: { userId, blogPostId } },
         });
+        await applyReputationDelta({
+            userId: post.authorId,
+            delta: -DELTA_BLOG_POST_LIKED,
+            reason: ReputationReason.BLOG_POST_LIKED,
+            refBlogPostId: blogPostId,
+        });
     } else {
         await prisma.blogPostLike.create({
             data: { userId, blogPostId },
+        });
+        await applyReputationDelta({
+            userId: post.authorId,
+            delta: DELTA_BLOG_POST_LIKED,
+            reason: ReputationReason.BLOG_POST_LIKED,
+            refBlogPostId: blogPostId,
         });
     }
 

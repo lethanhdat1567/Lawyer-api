@@ -41,6 +41,28 @@ export const hubAdminPatchSchema = hubPostPatchSchema.extend({
     authorId: z.string().cuid().optional(),
 });
 
+export const hubCategoryCreateSchema = z.object({
+    slug: z.string().trim().min(1).max(191),
+    name: z.string().trim().min(1).max(191),
+    sortOrder: z.coerce.number().int().optional().default(0),
+});
+
+export const hubCategoryPatchSchema = z
+    .object({
+        slug: z.string().trim().min(1).max(191).optional(),
+        name: z.string().trim().min(1).max(191).optional(),
+        sortOrder: z.coerce.number().int().optional(),
+    })
+    .refine(
+        (value) =>
+            value.slug !== undefined ||
+            value.name !== undefined ||
+            value.sortOrder !== undefined,
+        {
+            message: "At least one field is required",
+        },
+    );
+
 export const hubCommentCreateBodySchema = z.object({
     body: z.string().trim().min(1).max(10_000),
     parentId: z.string().cuid().nullable().optional(),
