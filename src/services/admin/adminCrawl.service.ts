@@ -5,7 +5,7 @@ import aiService from "../ai.service.js";
 import { getSupabase } from "../../lib/supabase.js";
 
 class AdminCrawlService {
-    private TEST_LIMIT: number = 20;
+    private TEST_LIMIT: number = 10;
 
     private cleanPage($: CheerioRoot) {
         $(
@@ -37,8 +37,7 @@ class AdminCrawlService {
                     if (!text || text.includes("Thành viên Pro")) return;
 
                     const isChapter =
-                        node.find('a[name^="chuong_"], a[name^="loai_"]')
-                            .length > 0 ||
+                        node.find('a[name^="chuong_"], a[name^="loai_"]').length > 0 ||
                         /^(Phần|Chương|Mục)\s+[0-9IVXLM]+/i.test(text);
 
                     if (isChapter && !LawParserHelper.isEnglish(text)) {
@@ -47,9 +46,7 @@ class AdminCrawlService {
                         return;
                     }
 
-                    const isArticleHeader =
-                        node.find('a[name^="dieu_"]').length > 0 ||
-                        /^Điều\s+\d+\./i.test(text);
+                    const isArticleHeader = node.find('a[name^="dieu_"]').length > 0 || /^Điều\s+\d+\./i.test(text);
 
                     if (isArticleHeader) {
                         if (LawParserHelper.isEnglish(text)) {
@@ -62,8 +59,7 @@ class AdminCrawlService {
                             law_title: lawTitle,
                             chapter: currentChapter,
                             article_title: text,
-                            article_number:
-                                LawParserHelper.extractArticleNumber(text),
+                            article_number: LawParserHelper.extractArticleNumber(text),
                             content: "",
                             source_url: request.loadedUrl,
                             embedding: [],
@@ -90,14 +86,10 @@ class AdminCrawlService {
 
                 // BƯỚC 2: LỌC DỮ LIỆU SẠCH
                 const finalData = tempArticles.filter(
-                    (item) =>
-                        item.content.trim().length > 20 &&
-                        LawParserHelper.hasVietnamese(item.content),
+                    (item) => item.content.trim().length > 20 && LawParserHelper.hasVietnamese(item.content),
                 );
 
-                log.info(
-                    `Test Mode Active: Processing ${finalData.length} articles (Limit: ${this.TEST_LIMIT})`,
-                );
+                log.info(`Test Mode Active: Processing ${finalData.length} articles (Limit: ${this.TEST_LIMIT})`);
 
                 // BƯỚC 3: XỬ LÝ EMBEDDING (Gửi 1 mẻ duy nhất cho nhanh)
                 if (finalData.length > 0) {
@@ -108,16 +100,11 @@ class AdminCrawlService {
                     });
 
                     try {
-                        const embeddings =
-                            await aiService.generateBatchEmbeddings(
-                                textsToEmbed,
-                            );
+                        const embeddings = await aiService.generateBatchEmbeddings(textsToEmbed);
                         finalData.forEach((item, idx) => {
                             item.embedding = embeddings[idx] || [];
                         });
-                        log.info(
-                            `Successfully generated embeddings for ${finalData.length} items.`,
-                        );
+                        log.info(`Successfully generated embeddings for ${finalData.length} items.`);
                     } catch (error) {
                         log.error(`Embedding failed: ${error}`);
                         throw error;

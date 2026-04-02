@@ -4,10 +4,15 @@ import { LawArticle } from "../types/crawl.js";
 import aiService from "./ai.service.js";
 import chatMessageService from "./chat-message.service.js";
 
+interface AskLawerAiOptions {
+    sessionId?: string;
+    userQuestion: string;
+}
+
 class ChatAIService {
     private supabase = getSupabase();
 
-    async ask(sessionId: string, userQuestion: string): Promise<StreamTextResult<any, any>> {
+    async ask({ sessionId, userQuestion }: AskLawerAiOptions): Promise<StreamTextResult<any, any>> {
         // * Generate vector
         const queryVector = await aiService.generateEmbedding(userQuestion);
 
@@ -64,16 +69,18 @@ class ChatAIService {
                     ${userQuestion}
                     `;
 
-        // *Save message in SessionId
         const answer = await aiService.generateStreamText(systemPrompt);
-        void (async () => {
-            try {
-                const finalText = await answer.text;
-                await chatMessageService.createMessage(sessionId, finalText, "assistant");
-            } catch (err: any) {
-                console.error("Lưu tin nhắn AI thất bại:", err);
-            }
-        })();
+
+        if (sessionId) {
+            void (async () => {
+                try {
+                    const finalText = await answer.text;
+                    await chatMessageService.createMessage(sessionId, finalText, "assistant");
+                } catch (err: any) {
+                    console.error("Lưu tin nhắn AI thất bại:", err);
+                }
+            })();
+        }
 
         return answer;
     }

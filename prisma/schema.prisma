@@ -276,14 +276,31 @@ model HubPost {
     updatedAt  DateTime      @updatedAt @map("updated_at")
     deletedAt  DateTime?     @map("deleted_at")
 
-    category   HubCategory?          @relation(fields: [categoryId], references: [id], onDelete: SetNull)
-    author     User                  @relation("HubPostAuthor", fields: [authorId], references: [id], onDelete: Cascade)
-    comments   HubComment[]
-    oversights HubOversightVersion[]
+    category    HubCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+    author      User         @relation("HubPostAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+    comments    HubComment[]
+    hubFeedback HubFeedback?
 
     @@index([categoryId, createdAt])
     @@index([authorId])
     @@map("hub_posts")
+}
+
+model HubFeedback {
+    id    String @id @default(uuid())
+    hubId String @unique @map("hub_id")
+
+    status FeedbackStatus @default(PENDING)
+
+    rawResponse Json?
+
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+
+    hub HubPost @relation(fields: [hubId], references: [id], onDelete: Cascade)
+
+    @@index([status])
+    @@map("hub_feedbacks")
 }
 
 model HubComment {
@@ -319,24 +336,6 @@ model HubCommentLike {
     @@id([userId, hubCommentId])
     @@index([hubCommentId])
     @@map("hub_comment_likes")
-}
-
-model HubOversightVersion {
-    id                 String   @id @default(cuid())
-    postId             String   @map("post_id")
-    version            Int
-    summaryText        String   @map("summary_text") @db.Text
-    suggestionsJson    Json?    @map("suggestions_json")
-    legalCorpusVersion String?  @map("legal_corpus_version")
-    modelVersion       String?  @map("model_version")
-    isCurrent          Boolean  @default(false) @map("is_current")
-    createdAt          DateTime @default(now()) @map("created_at")
-
-    post HubPost @relation(fields: [postId], references: [id], onDelete: Cascade)
-
-    @@unique([postId, version])
-    @@index([postId, isCurrent])
-    @@map("hub_oversight_versions")
 }
 
 // --- Blog ---
@@ -552,4 +551,11 @@ enum QueueStatus {
     processing
     completed
     error
+}
+
+enum FeedbackStatus {
+    PENDING
+    PROCESSING
+    COMPLETED
+    FAILED
 }

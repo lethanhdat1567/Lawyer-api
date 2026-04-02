@@ -4,6 +4,7 @@ import { queueService } from "./services/queue.service.js";
 import { AI_FEEDBACK_QUEUE, FORGOT_PASSWORD_QUEUE, VERIFY_EMAIL_QUEUE } from "./constants/queue.js";
 import { connectPrisma } from "./lib/prisma.js";
 import { sendEmailVerification, sendPasswordResetCode } from "./services/email.service.js";
+import hubFeedbackService from "./services/hub-feedback.service.js";
 
 connectPrisma();
 (async () => {
@@ -25,6 +26,11 @@ connectPrisma();
                         await sendPasswordResetCode(queueJob?.payload?.email, queueJob?.payload?.code);
                     }
                     case AI_FEEDBACK_QUEUE: {
+                        const exitPublicHub = await hubFeedbackService.findPublicHubById(queueJob?.payload?.hubId);
+
+                        if (exitPublicHub) {
+                            await hubFeedbackService.createFeedback(exitPublicHub?.id as string, exitPublicHub?.body);
+                        }
                     }
                 }
 

@@ -1,16 +1,12 @@
-import type {
-    HubCategory,
-    HubComment,
-    HubPost,
-    Profile,
-    User,
-} from "../../generated/prisma/client.js";
-import { HubPostStatus } from "../../generated/prisma/enums.js";
+import type { HubCategory, HubComment, HubFeedback, HubPost, Profile, User } from "../../generated/prisma/client.js";
+import { FeedbackStatus, HubPostStatus } from "../../generated/prisma/enums.js";
 import { ErrorCode } from "../constants/errorCodes.js";
 import { HttpStatus } from "../constants/httpStatus.js";
 import { ERROR_MESSAGES } from "../constants/messages.js";
+import { AI_FEEDBACK_QUEUE } from "../constants/queue.js";
 import { HttpError } from "../lib/httpError.js";
 import { getPrisma } from "../lib/prisma.js";
+import { queueService } from "./queue.service.js";
 
 const EXCERPT_LEN = 180;
 
@@ -40,18 +36,6 @@ export interface HubCategoryDto {
     sortOrder: number;
 }
 
-export interface HubOversightVersionDto {
-    id: string;
-    postId: string;
-    version: number;
-    summaryText: string;
-    suggestionsJson: unknown;
-    legalCorpusVersion: string | null;
-    modelVersion: string | null;
-    isCurrent: boolean;
-    createdAt: string;
-}
-
 export interface HubCommentDto {
     id: string;
     postId: string;
@@ -79,7 +63,14 @@ export interface HubPostListItemDto {
 export interface HubPostDetailDto extends HubPostListItemDto {
     body: string;
     comments: HubCommentDto[];
-    oversightVersions: HubOversightVersionDto[];
+    aiFeedback: HubAiFeedbackDto | null;
+}
+
+export interface HubAiFeedbackDto {
+    status: FeedbackStatus;
+    rawResponse: unknown | null;
+    createdAt: string;
+    updatedAt: string;
 }
 
 function toIso(d: Date): string {
@@ -98,10 +89,7 @@ export function slugifyTitle(title: string): string {
     return base || "bai-thao-luan";
 }
 
-async function allocateUniqueSlug(
-    base: string,
-    excludePostId?: string,
-): Promise<string> {
+async function allocateUniqueSlug(base: string, excludePostId?: string): Promise<string> {
     const prisma = getPrisma();
     let n = 0;
     for (;;) {
@@ -156,6 +144,17 @@ function mapCommentRowToDto(c: HubCommentAuthorRow): HubCommentDto {
     };
 }
 
+function mapHubFeedback(feedback: HubFeedback | null | undefined): HubAiFeedbackDto | null {
+    if (!feedback) return null;
+
+    return {
+        status: feedback.status,
+        rawResponse: feedback.rawResponse ?? null,
+        createdAt: toIso(feedback.createdAt),
+        updatedAt: toIso(feedback.updatedAt),
+    };
+}
+
 async function hubCommentDepthFromRoot(commentId: string): Promise<number> {
     const prisma = getPrisma();
     let depth = 0;
@@ -164,11 +163,10 @@ async function hubCommentDepthFromRoot(commentId: string): Promise<number> {
     while (curId) {
         if (seen.has(curId)) return -1;
         seen.add(curId);
-        const row: { parentId: string | null } | null =
-            await prisma.hubComment.findFirst({
-                where: { id: curId, deletedAt: null },
-                select: { parentId: true },
-            });
+        const row: { parentId: string | null } | null = await prisma.hubComment.findFirst({
+            where: { id: curId, deletedAt: null },
+            select: { parentId: true },
+        });
         if (!row) return -1;
         if (!row.parentId) return depth;
         depth += 1;
@@ -195,10 +193,7 @@ async function getActiveHubCategoryById(id: string): Promise<HubCategory | null>
     });
 }
 
-async function getActiveHubCategoryBySlug(
-    slug: string,
-    excludeId?: string,
-): Promise<HubCategory | null> {
+async function getActiveHubCategoryBySlug(slug: string, excludeId?: string): Promise<HubCategory | null> {
     const prisma = getPrisma();
     return prisma.hubCategory.findFirst({
         where: {
@@ -277,20 +272,13 @@ export async function adminUpdateHubCategory(
     const prisma = getPrisma();
     const existing = await getActiveHubCategoryById(categoryId);
     if (!existing) {
-        throw new HttpError(
-            HttpStatus.NOT_FOUND,
-            "Category not found",
-            ErrorCode.NOT_FOUND,
-        );
+        throw new HttpError(HttpStatus.NOT_FOUND, "Category not found", ErrorCode.NOT_FOUND);
     }
 
     if (input.slug?.trim()) {
         const requestedSlug = input.slug.trim();
         if (requestedSlug !== existing.slug) {
-            const slugTaken = await getActiveHubCategoryBySlug(
-                requestedSlug,
-                categoryId,
-            );
+            const slugTaken = await getActiveHubCategoryBySlug(requestedSlug, categoryId);
             if (slugTaken) {
                 throw new HttpError(
                     HttpStatus.CONFLICT,
@@ -306,26 +294,18 @@ export async function adminUpdateHubCategory(
         data: {
             ...(input.slug !== undefined ? { slug: input.slug.trim() } : {}),
             ...(input.name !== undefined ? { name: input.name.trim() } : {}),
-            ...(input.sortOrder !== undefined
-                ? { sortOrder: input.sortOrder }
-                : {}),
+            ...(input.sortOrder !== undefined ? { sortOrder: input.sortOrder } : {}),
         },
     });
 
     return mapCategory(category)!;
 }
 
-export async function adminSoftDeleteHubCategory(
-    categoryId: string,
-): Promise<void> {
+export async function adminSoftDeleteHubCategory(categoryId: string): Promise<void> {
     const prisma = getPrisma();
     const existing = await getActiveHubCategoryById(categoryId);
     if (!existing) {
-        throw new HttpError(
-            HttpStatus.NOT_FOUND,
-            "Category not found",
-            ErrorCode.NOT_FOUND,
-        );
+        throw new HttpError(HttpStatus.NOT_FOUND, "Category not found", ErrorCode.NOT_FOUND);
     }
 
     const activePostCount = await prisma.hubPost.count({
@@ -335,11 +315,7 @@ export async function adminSoftDeleteHubCategory(
         },
     });
     if (activePostCount > 0) {
-        throw new HttpError(
-            HttpStatus.CONFLICT,
-            "Category is in use by active posts",
-            ErrorCode.VALIDATION_ERROR,
-        );
+        throw new HttpError(HttpStatus.CONFLICT, "Category is in use by active posts", ErrorCode.VALIDATION_ERROR);
     }
 
     await prisma.hubCategory.update({
@@ -369,26 +345,19 @@ export async function listPublishedHubPosts(params: {
         categoryId = cat.id;
     }
 
-    const where: import("../../generated/prisma/client.js").Prisma.HubPostWhereInput =
-        {
-            deletedAt: null,
-            status: HubPostStatus.PUBLISHED,
-            ...(categoryId ? { categoryId } : {}),
-            ...(params.authorId ? { authorId: params.authorId } : {}),
-            ...(q
-                ? {
-                      OR: [
-                          { title: { contains: q } },
-                          { body: { contains: q } },
-                      ],
-                  }
-                : {}),
-        };
+    const where: import("../../generated/prisma/client.js").Prisma.HubPostWhereInput = {
+        deletedAt: null,
+        status: HubPostStatus.PUBLISHED,
+        ...(categoryId ? { categoryId } : {}),
+        ...(params.authorId ? { authorId: params.authorId } : {}),
+        ...(q
+            ? {
+                  OR: [{ title: { contains: q } }, { body: { contains: q } }],
+              }
+            : {}),
+    };
 
-    const orderBy =
-        params.sort === "updated"
-            ? { updatedAt: "desc" as const }
-            : { createdAt: "desc" as const };
+    const orderBy = params.sort === "updated" ? { updatedAt: "desc" as const } : { createdAt: "desc" as const };
 
     const [total, rows] = await prisma.$transaction([
         prisma.hubPost.count({ where }),
@@ -411,9 +380,7 @@ export async function listPublishedHubPosts(params: {
     };
 }
 
-export async function getPublishedHubPostBySlug(
-    slug: string,
-): Promise<HubPostDetailDto | null> {
+export async function getPublishedHubPostBySlug(slug: string): Promise<HubPostDetailDto | null> {
     const prisma = getPrisma();
     const post = await prisma.hubPost.findFirst({
         where: {
@@ -424,50 +391,29 @@ export async function getPublishedHubPostBySlug(
         include: {
             category: true,
             author: { include: { profile: true } },
+            hubFeedback: true,
             _count: hubActiveCommentsCount,
             comments: {
                 where: { deletedAt: null },
                 orderBy: { createdAt: "asc" },
                 include: hubCommentIncludeAuthorAndLikes,
             },
-            oversights: {
-                orderBy: { version: "asc" },
-            },
         },
     });
     if (!post) return null;
 
     const base = mapPostListItem(post as PostRowList);
-    const oversightVersions: HubOversightVersionDto[] = post.oversights.map(
-        (v) => ({
-            id: v.id,
-            postId: v.postId,
-            version: v.version,
-            summaryText: v.summaryText,
-            suggestionsJson: v.suggestionsJson,
-            legalCorpusVersion: v.legalCorpusVersion,
-            modelVersion: v.modelVersion,
-            isCurrent: v.isCurrent,
-            createdAt: toIso(v.createdAt),
-        }),
-    );
-
-    const comments: HubCommentDto[] = post.comments.map((c) =>
-        mapCommentRowToDto(c as HubCommentAuthorRow),
-    );
+    const comments: HubCommentDto[] = post.comments.map((c) => mapCommentRowToDto(c as HubCommentAuthorRow));
 
     return {
         ...base,
         body: post.body,
         comments,
-        oversightVersions,
+        aiFeedback: mapHubFeedback(post.hubFeedback),
     };
 }
 
-export async function getMyHubPostDetail(
-    userId: string,
-    postId: string,
-): Promise<HubPostDetailDto | null> {
+export async function getMyHubPostDetail(userId: string, postId: string): Promise<HubPostDetailDto | null> {
     const prisma = getPrisma();
     const post = await prisma.hubPost.findFirst({
         where: {
@@ -478,42 +424,25 @@ export async function getMyHubPostDetail(
         include: {
             category: true,
             author: { include: { profile: true } },
+            hubFeedback: true,
             _count: hubActiveCommentsCount,
             comments: {
                 where: { deletedAt: null },
                 orderBy: { createdAt: "asc" },
                 include: hubCommentIncludeAuthorAndLikes,
             },
-            oversights: {
-                orderBy: { version: "asc" },
-            },
         },
     });
     if (!post) return null;
 
     const base = mapPostListItem(post as PostRowList);
-    const oversightVersions: HubOversightVersionDto[] = post.oversights.map(
-        (v) => ({
-            id: v.id,
-            postId: v.postId,
-            version: v.version,
-            summaryText: v.summaryText,
-            suggestionsJson: v.suggestionsJson,
-            legalCorpusVersion: v.legalCorpusVersion,
-            modelVersion: v.modelVersion,
-            isCurrent: v.isCurrent,
-            createdAt: toIso(v.createdAt),
-        }),
-    );
-    const comments: HubCommentDto[] = post.comments.map((c) =>
-        mapCommentRowToDto(c as HubCommentAuthorRow),
-    );
+    const comments: HubCommentDto[] = post.comments.map((c) => mapCommentRowToDto(c as HubCommentAuthorRow));
 
     return {
         ...base,
         body: post.body,
         comments,
-        oversightVersions,
+        aiFeedback: mapHubFeedback(post.hubFeedback),
     };
 }
 
@@ -562,11 +491,7 @@ export async function createHubPostForUser(
             where: { id: input.categoryId, deletedAt: null },
         });
         if (!cat) {
-            throw new HttpError(
-                HttpStatus.BAD_REQUEST,
-                "Category not found",
-                ErrorCode.VALIDATION_ERROR,
-            );
+            throw new HttpError(HttpStatus.BAD_REQUEST, "Category not found", ErrorCode.VALIDATION_ERROR);
         }
     }
     const baseSlug = slugifyTitle(input.title);
@@ -587,6 +512,11 @@ export async function createHubPostForUser(
             _count: hubActiveCommentsCount,
         },
     });
+
+    if (post.status === "PUBLISHED") {
+        await queueService.push(AI_FEEDBACK_QUEUE, { hubId: post.id });
+    }
+
     return mapPostListItem(post as PostRowList);
 }
 
@@ -605,22 +535,14 @@ export async function updateMyHubPost(
         where: { id: postId, deletedAt: null },
     });
     if (!existing || existing.authorId !== userId) {
-        throw new HttpError(
-            HttpStatus.NOT_FOUND,
-            "Post not found",
-            ErrorCode.NOT_FOUND,
-        );
+        throw new HttpError(HttpStatus.NOT_FOUND, "Post not found", ErrorCode.NOT_FOUND);
     }
     if (input.categoryId !== undefined && input.categoryId !== null) {
         const cat = await prisma.hubCategory.findFirst({
             where: { id: input.categoryId, deletedAt: null },
         });
         if (!cat) {
-            throw new HttpError(
-                HttpStatus.BAD_REQUEST,
-                "Category not found",
-                ErrorCode.VALIDATION_ERROR,
-            );
+            throw new HttpError(HttpStatus.BAD_REQUEST, "Category not found", ErrorCode.VALIDATION_ERROR);
         }
     }
     const post = await prisma.hubPost.update({
@@ -628,9 +550,7 @@ export async function updateMyHubPost(
         data: {
             ...(input.title !== undefined ? { title: input.title } : {}),
             ...(input.body !== undefined ? { body: input.body } : {}),
-            ...(input.categoryId !== undefined
-                ? { categoryId: input.categoryId }
-                : {}),
+            ...(input.categoryId !== undefined ? { categoryId: input.categoryId } : {}),
             ...(input.status !== undefined ? { status: input.status } : {}),
         },
         include: {
@@ -639,23 +559,21 @@ export async function updateMyHubPost(
             _count: hubActiveCommentsCount,
         },
     });
+
+    if (post.status === "PUBLISHED") {
+        await queueService.push(AI_FEEDBACK_QUEUE, { hubId: post.id });
+    }
+
     return mapPostListItem(post as PostRowList);
 }
 
-export async function softDeleteMyHubPost(
-    userId: string,
-    postId: string,
-): Promise<void> {
+export async function softDeleteMyHubPost(userId: string, postId: string): Promise<void> {
     const prisma = getPrisma();
     const existing = await prisma.hubPost.findFirst({
         where: { id: postId, deletedAt: null },
     });
     if (!existing || existing.authorId !== userId) {
-        throw new HttpError(
-            HttpStatus.NOT_FOUND,
-            "Post not found",
-            ErrorCode.NOT_FOUND,
-        );
+        throw new HttpError(HttpStatus.NOT_FOUND, "Post not found", ErrorCode.NOT_FOUND);
     }
     await prisma.hubPost.update({
         where: { id: postId },
@@ -685,27 +603,19 @@ export async function adminListHubPosts(params: {
         }
     }
 
-    const where: import("../../generated/prisma/client.js").Prisma.HubPostWhereInput =
-        {
-            deletedAt: null,
-            ...(categoryId ? { categoryId } : {}),
-            ...(params.status ? { status: params.status } : {}),
-            ...(params.authorId ? { authorId: params.authorId } : {}),
-            ...(q
-                ? {
-                      OR: [
-                          { title: { contains: q } },
-                          { body: { contains: q } },
-                          { slug: { contains: q } },
-                      ],
-                  }
-                : {}),
-        };
+    const where: import("../../generated/prisma/client.js").Prisma.HubPostWhereInput = {
+        deletedAt: null,
+        ...(categoryId ? { categoryId } : {}),
+        ...(params.status ? { status: params.status } : {}),
+        ...(params.authorId ? { authorId: params.authorId } : {}),
+        ...(q
+            ? {
+                  OR: [{ title: { contains: q } }, { body: { contains: q } }, { slug: { contains: q } }],
+              }
+            : {}),
+    };
 
-    const orderBy =
-        params.sort === "updated"
-            ? { updatedAt: "desc" as const }
-            : { createdAt: "desc" as const };
+    const orderBy = params.sort === "updated" ? { updatedAt: "desc" as const } : { createdAt: "desc" as const };
 
     const [total, rows] = await prisma.$transaction([
         prisma.hubPost.count({ where }),
@@ -741,22 +651,14 @@ export async function adminCreateHubPost(input: {
         where: { id: input.authorId, deletedAt: null },
     });
     if (!user) {
-        throw new HttpError(
-            HttpStatus.BAD_REQUEST,
-            "Author not found",
-            ErrorCode.VALIDATION_ERROR,
-        );
+        throw new HttpError(HttpStatus.BAD_REQUEST, "Author not found", ErrorCode.VALIDATION_ERROR);
     }
     if (input.categoryId) {
         const cat = await prisma.hubCategory.findFirst({
             where: { id: input.categoryId, deletedAt: null },
         });
         if (!cat) {
-            throw new HttpError(
-                HttpStatus.BAD_REQUEST,
-                "Category not found",
-                ErrorCode.VALIDATION_ERROR,
-            );
+            throw new HttpError(HttpStatus.BAD_REQUEST, "Category not found", ErrorCode.VALIDATION_ERROR);
         }
     }
     let slug: string;
@@ -812,22 +714,14 @@ export async function adminUpdateHubPost(
         where: { id: postId, deletedAt: null },
     });
     if (!existing) {
-        throw new HttpError(
-            HttpStatus.NOT_FOUND,
-            "Post not found",
-            ErrorCode.NOT_FOUND,
-        );
+        throw new HttpError(HttpStatus.NOT_FOUND, "Post not found", ErrorCode.NOT_FOUND);
     }
     if (input.authorId !== undefined) {
         const user = await prisma.user.findFirst({
             where: { id: input.authorId, deletedAt: null },
         });
         if (!user) {
-            throw new HttpError(
-                HttpStatus.BAD_REQUEST,
-                "Author not found",
-                ErrorCode.VALIDATION_ERROR,
-            );
+            throw new HttpError(HttpStatus.BAD_REQUEST, "Author not found", ErrorCode.VALIDATION_ERROR);
         }
     }
     if (input.categoryId !== undefined && input.categoryId !== null) {
@@ -835,11 +729,7 @@ export async function adminUpdateHubPost(
             where: { id: input.categoryId, deletedAt: null },
         });
         if (!cat) {
-            throw new HttpError(
-                HttpStatus.BAD_REQUEST,
-                "Category not found",
-                ErrorCode.VALIDATION_ERROR,
-            );
+            throw new HttpError(HttpStatus.BAD_REQUEST, "Category not found", ErrorCode.VALIDATION_ERROR);
         }
     }
     if (input.slug?.trim()) {
@@ -863,16 +753,10 @@ export async function adminUpdateHubPost(
         data: {
             ...(input.title !== undefined ? { title: input.title } : {}),
             ...(input.body !== undefined ? { body: input.body } : {}),
-            ...(input.categoryId !== undefined
-                ? { categoryId: input.categoryId }
-                : {}),
+            ...(input.categoryId !== undefined ? { categoryId: input.categoryId } : {}),
             ...(input.status !== undefined ? { status: input.status } : {}),
-            ...(input.slug?.trim() !== undefined
-                ? { slug: input.slug.trim() }
-                : {}),
-            ...(input.authorId !== undefined
-                ? { authorId: input.authorId }
-                : {}),
+            ...(input.slug?.trim() !== undefined ? { slug: input.slug.trim() } : {}),
+            ...(input.authorId !== undefined ? { authorId: input.authorId } : {}),
         },
         include: {
             category: true,
@@ -883,49 +767,30 @@ export async function adminUpdateHubPost(
     return mapPostListItem(post as PostRowList);
 }
 
-export async function getAdminHubPostDetail(
-    postId: string,
-): Promise<HubPostDetailDto | null> {
+export async function getAdminHubPostDetail(postId: string): Promise<HubPostDetailDto | null> {
     const prisma = getPrisma();
     const post = await prisma.hubPost.findFirst({
         where: { id: postId, deletedAt: null },
         include: {
             category: true,
             author: { include: { profile: true } },
+            hubFeedback: true,
             _count: hubActiveCommentsCount,
             comments: {
                 where: { deletedAt: null },
                 orderBy: { createdAt: "asc" },
                 include: hubCommentIncludeAuthorAndLikes,
             },
-            oversights: {
-                orderBy: { version: "asc" },
-            },
         },
     });
     if (!post) return null;
     const base = mapPostListItem(post as PostRowList);
-    const oversightVersions: HubOversightVersionDto[] = post.oversights.map(
-        (v) => ({
-            id: v.id,
-            postId: v.postId,
-            version: v.version,
-            summaryText: v.summaryText,
-            suggestionsJson: v.suggestionsJson,
-            legalCorpusVersion: v.legalCorpusVersion,
-            modelVersion: v.modelVersion,
-            isCurrent: v.isCurrent,
-            createdAt: toIso(v.createdAt),
-        }),
-    );
-    const comments: HubCommentDto[] = post.comments.map((c) =>
-        mapCommentRowToDto(c as HubCommentAuthorRow),
-    );
+    const comments: HubCommentDto[] = post.comments.map((c) => mapCommentRowToDto(c as HubCommentAuthorRow));
     return {
         ...base,
         body: post.body,
         comments,
-        oversightVersions,
+        aiFeedback: mapHubFeedback(post.hubFeedback),
     };
 }
 
@@ -944,19 +809,11 @@ export async function createHubComment(
         select: { id: true },
     });
     if (!post) {
-        throw new HttpError(
-            HttpStatus.NOT_FOUND,
-            "Post not found",
-            ErrorCode.NOT_FOUND,
-        );
+        throw new HttpError(HttpStatus.NOT_FOUND, "Post not found", ErrorCode.NOT_FOUND);
     }
 
     const parentId =
-        input.parentId === undefined ||
-        input.parentId === null ||
-        input.parentId === ""
-            ? null
-            : input.parentId;
+        input.parentId === undefined || input.parentId === null || input.parentId === "" ? null : input.parentId;
 
     if (parentId) {
         const parent = await prisma.hubComment.findFirst({
@@ -964,19 +821,11 @@ export async function createHubComment(
             select: { id: true },
         });
         if (!parent) {
-            throw new HttpError(
-                HttpStatus.BAD_REQUEST,
-                "Parent comment not found",
-                ErrorCode.VALIDATION_ERROR,
-            );
+            throw new HttpError(HttpStatus.BAD_REQUEST, "Parent comment not found", ErrorCode.VALIDATION_ERROR);
         }
         const depth = await hubCommentDepthFromRoot(parentId);
         if (depth < 0 || depth >= HUB_COMMENT_MAX_DEPTH) {
-            throw new HttpError(
-                HttpStatus.BAD_REQUEST,
-                "Max reply depth exceeded",
-                ErrorCode.VALIDATION_ERROR,
-            );
+            throw new HttpError(HttpStatus.BAD_REQUEST, "Max reply depth exceeded", ErrorCode.VALIDATION_ERROR);
         }
     }
 
@@ -1004,18 +853,10 @@ export async function updateHubComment(
         include: { author: { include: { profile: true } } },
     });
     if (!existing) {
-        throw new HttpError(
-            HttpStatus.NOT_FOUND,
-            "Comment not found",
-            ErrorCode.NOT_FOUND,
-        );
+        throw new HttpError(HttpStatus.NOT_FOUND, "Comment not found", ErrorCode.NOT_FOUND);
     }
     if (existing.authorId !== userId) {
-        throw new HttpError(
-            HttpStatus.FORBIDDEN,
-            ERROR_MESSAGES[ErrorCode.FORBIDDEN],
-            ErrorCode.FORBIDDEN,
-        );
+        throw new HttpError(HttpStatus.FORBIDDEN, ERROR_MESSAGES[ErrorCode.FORBIDDEN], ErrorCode.FORBIDDEN);
     }
 
     const updated = await prisma.hubComment.update({
@@ -1026,29 +867,17 @@ export async function updateHubComment(
     return mapCommentRowToDto(updated as HubCommentAuthorRow);
 }
 
-export async function softDeleteHubComment(
-    userId: string,
-    postId: string,
-    commentId: string,
-): Promise<void> {
+export async function softDeleteHubComment(userId: string, postId: string, commentId: string): Promise<void> {
     const prisma = getPrisma();
     const existing = await prisma.hubComment.findFirst({
         where: { id: commentId, postId, deletedAt: null },
         select: { id: true, authorId: true },
     });
     if (!existing) {
-        throw new HttpError(
-            HttpStatus.NOT_FOUND,
-            "Comment not found",
-            ErrorCode.NOT_FOUND,
-        );
+        throw new HttpError(HttpStatus.NOT_FOUND, "Comment not found", ErrorCode.NOT_FOUND);
     }
     if (existing.authorId !== userId) {
-        throw new HttpError(
-            HttpStatus.FORBIDDEN,
-            ERROR_MESSAGES[ErrorCode.FORBIDDEN],
-            ErrorCode.FORBIDDEN,
-        );
+        throw new HttpError(HttpStatus.FORBIDDEN, ERROR_MESSAGES[ErrorCode.FORBIDDEN], ErrorCode.FORBIDDEN);
     }
     await prisma.hubComment.update({
         where: { id: commentId },
@@ -1062,11 +891,7 @@ export async function adminSoftDeleteHubPost(postId: string): Promise<void> {
         where: { id: postId, deletedAt: null },
     });
     if (!existing) {
-        throw new HttpError(
-            HttpStatus.NOT_FOUND,
-            "Post not found",
-            ErrorCode.NOT_FOUND,
-        );
+        throw new HttpError(HttpStatus.NOT_FOUND, "Post not found", ErrorCode.NOT_FOUND);
     }
     await prisma.hubPost.update({
         where: { id: postId },

@@ -41,7 +41,6 @@ Tài liệu bám **tổng quan UI** (tra cứu AI, hub thảo luận, blog Verif
 | `hub_categories`         | `slug` (unique), `name`, `sort_order`; timestamps, `deleted_at`.                                                                                                                                                         |
 | `hub_posts`              | `category_id` (nullable FK), `author_id`, `slug` (unique), `title`, `body`, `status` (`PUBLISHED`, `HIDDEN`, …); timestamps, `deleted_at`.                                                                               |
 | `hub_comments`           | `post_id`, `parent_id` (nullable — cây), `author_id`, `body`; timestamps, `deleted_at`.                                                                                                                                  |
-| `hub_oversight_versions` | `post_id`, `version` (int, tăng dần), `summary_text`, `suggestions_json` (gợi ý đối chiếu + link điều khoản), `legal_corpus_version`, `model_version`, `created_at`. Hiển thị bản **max(version)** hoặc cờ `is_current`. |
 
 **Index gợi ý:** `hub_posts (category_id, created_at)`, `hub_comments (post_id, parent_id)`.
 
@@ -80,7 +79,6 @@ users 1—* lawyer_verifications
 users 1—* assistant_conversations 1—* assistant_messages 1—* assistant_message_ratings
 
 hub_categories 1—* hub_posts 1—* hub_comments (parent self)
-hub_posts 1—* hub_oversight_versions
 
 users 1—* blog_posts *—* tags (qua blog_post_tags)
 

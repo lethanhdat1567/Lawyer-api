@@ -9,7 +9,27 @@ class ChatAiController {
         const { sessionId, message } = req.body;
 
         try {
-            if (!req.user) return void res.unauthorization();
+            if (!message || typeof message !== "string" || !message.trim()) {
+                return res.status(400).json({ message: "Tin nhắn không được để trống" });
+            }
+
+            if (!req.user) {
+                const answer = await chatAiService.ask({
+                    userQuestion: message.trim(),
+                });
+                const response = answer.toTextStreamResponse();
+
+                res.status(response.status);
+                response.headers.forEach((value, key) => {
+                    res.setHeader(key, value);
+                });
+
+                if (!response.body) {
+                    return res.end();
+                }
+
+                return Readable.fromWeb(response.body as any).pipe(res);
+            }
 
             const session = await chatSessionsService.getOwnedSession(sessionId, req.user.id);
             if (!session) {
@@ -27,7 +47,10 @@ class ChatAiController {
             await chatMessageService.createMessage(sessionId, message, "user");
 
             // *Generate response
-            const answer = await chatAiService.ask(sessionId, message);
+            const answer = await chatAiService.ask({
+                sessionId,
+                userQuestion: message,
+            });
             const response = answer.toTextStreamResponse();
 
             res.status(response.status);
