@@ -1,10 +1,4 @@
-import type {
-    BlogComment,
-    BlogPost,
-    Profile,
-    Tag,
-    User,
-} from "../../generated/prisma/client.js";
+import type { BlogComment, BlogPost, Profile, Tag, User } from "../../generated/prisma/client.js";
 import { BlogPostStatus, ReputationReason } from "../../generated/prisma/enums.js";
 import { ErrorCode } from "../constants/errorCodes.js";
 import { HttpStatus } from "../constants/httpStatus.js";
@@ -12,12 +6,9 @@ import { ERROR_MESSAGES } from "../constants/messages.js";
 import { DELTA_BLOG_POST_LIKED } from "../constants/reputation.constants.js";
 import { HttpError } from "../lib/httpError.js";
 import { getPrisma } from "../lib/prisma.js";
-import {
-    applyReputationDelta,
-    awardPublishedBlogScore,
-    revokePublishedBlogScore,
-} from "./reputation.service.js";
+import { applyReputationDelta, awardPublishedBlogScore, revokePublishedBlogScore } from "./reputation.service.js";
 import { slugifyTitle } from "./hub.service.js";
+import aiService from "./ai.service.js";
 
 const EXCERPT_LEN = 180;
 const BLOG_COMMENT_MAX_DEPTH = 4;
@@ -93,11 +84,10 @@ async function blogCommentDepthFromRoot(commentId: string): Promise<number> {
     while (curId) {
         if (seen.has(curId)) return -1;
         seen.add(curId);
-        const row: { parentId: string | null } | null =
-            await prisma.blogComment.findFirst({
-                where: { id: curId, deletedAt: null },
-                select: { parentId: true },
-            });
+        const row: { parentId: string | null } | null = await prisma.blogComment.findFirst({
+            where: { id: curId, deletedAt: null },
+            select: { parentId: true },
+        });
         if (!row) return -1;
         if (!row.parentId) return depth;
         depth += 1;
@@ -107,10 +97,7 @@ async function blogCommentDepthFromRoot(commentId: string): Promise<number> {
     return -1;
 }
 
-async function allocateUniqueBlogSlug(
-    base: string,
-    excludePostId?: string,
-): Promise<string> {
+async function allocateUniqueBlogSlug(base: string, excludePostId?: string): Promise<string> {
     const prisma = getPrisma();
     let n = 0;
     for (;;) {
@@ -160,10 +147,7 @@ async function getActiveBlogTagById(tagId: string): Promise<Tag | null> {
     });
 }
 
-async function getActiveBlogTagBySlug(
-    slug: string,
-    excludeId?: string,
-): Promise<Tag | null> {
+async function getActiveBlogTagBySlug(slug: string, excludeId?: string): Promise<Tag | null> {
     const prisma = getPrisma();
     return prisma.tag.findFirst({
         where: {
@@ -213,8 +197,7 @@ type BlogPostRowDetail = BlogPost & {
 };
 
 function mapPostListItem(p: BlogPostRowList): BlogPostListItemDto {
-    const excerpt =
-        (p.excerpt?.trim() ? p.excerpt : excerptFromBody(p.body)) ?? "";
+    const excerpt = (p.excerpt?.trim() ? p.excerpt : excerptFromBody(p.body)) ?? "";
     return {
         id: p.id,
         slug: p.slug,
@@ -233,9 +216,7 @@ function mapPostListItem(p: BlogPostRowList): BlogPostListItemDto {
 }
 
 function mapPostDetail(p: BlogPostRowDetail): BlogPostDetailDto {
-    const comments: BlogCommentDto[] = p.comments.map((c) =>
-        mapBlogCommentRowToDto(c),
-    );
+    const comments: BlogCommentDto[] = p.comments.map((c) => mapBlogCommentRowToDto(c));
     const listRow = {
         ...p,
         _count: { comments: p._count.comments, likes: p._count.likes },
@@ -293,18 +274,11 @@ async function assertTagIdsExist(tagIds: string[]): Promise<void> {
         where: { id: { in: unique }, deletedAt: null },
     });
     if (n !== unique.length) {
-        throw new HttpError(
-            HttpStatus.BAD_REQUEST,
-            "One or more tags not found",
-            ErrorCode.VALIDATION_ERROR,
-        );
+        throw new HttpError(HttpStatus.BAD_REQUEST, "One or more tags not found", ErrorCode.VALIDATION_ERROR);
     }
 }
 
-async function replaceBlogPostTags(
-    postId: string,
-    tagIds: string[] | undefined,
-) {
+async function replaceBlogPostTags(postId: string, tagIds: string[] | undefined) {
     if (tagIds === undefined) return;
     const prisma = getPrisma();
     const unique = [...new Set(tagIds)];
@@ -338,10 +312,7 @@ export async function listPublicBlogTags(): Promise<BlogTagDto[]> {
     return rows.map(mapTag);
 }
 
-export async function adminCreateBlogTag(input: {
-    name: string;
-    slug?: string;
-}): Promise<BlogTagDto> {
+export async function adminCreateBlogTag(input: { name: string; slug?: string }): Promise<BlogTagDto> {
     const prisma = getPrisma();
     const name = input.name.trim();
     const requestedSlug = input.slug?.trim();
@@ -349,11 +320,7 @@ export async function adminCreateBlogTag(input: {
 
     const existing = await getActiveBlogTagBySlug(slug);
     if (existing) {
-        throw new HttpError(
-            HttpStatus.CONFLICT,
-            "Tag slug already exists",
-            ErrorCode.VALIDATION_ERROR,
-        );
+        throw new HttpError(HttpStatus.CONFLICT, "Tag slug already exists", ErrorCode.VALIDATION_ERROR);
     }
 
     const tag = await prisma.tag.create({
@@ -376,11 +343,7 @@ export async function adminUpdateBlogTag(
     const prisma = getPrisma();
     const existing = await getActiveBlogTagById(tagId);
     if (!existing) {
-        throw new HttpError(
-            HttpStatus.NOT_FOUND,
-            "Tag not found",
-            ErrorCode.NOT_FOUND,
-        );
+        throw new HttpError(HttpStatus.NOT_FOUND, "Tag not found", ErrorCode.NOT_FOUND);
     }
 
     if (input.slug?.trim()) {
@@ -388,11 +351,7 @@ export async function adminUpdateBlogTag(
         if (requestedSlug !== existing.slug) {
             const slugTaken = await getActiveBlogTagBySlug(requestedSlug, tagId);
             if (slugTaken) {
-                throw new HttpError(
-                    HttpStatus.CONFLICT,
-                    "Tag slug already exists",
-                    ErrorCode.VALIDATION_ERROR,
-                );
+                throw new HttpError(HttpStatus.CONFLICT, "Tag slug already exists", ErrorCode.VALIDATION_ERROR);
             }
         }
     }
@@ -412,11 +371,7 @@ export async function adminSoftDeleteBlogTag(tagId: string): Promise<void> {
     const prisma = getPrisma();
     const existing = await getActiveBlogTagById(tagId);
     if (!existing) {
-        throw new HttpError(
-            HttpStatus.NOT_FOUND,
-            "Tag not found",
-            ErrorCode.NOT_FOUND,
-        );
+        throw new HttpError(HttpStatus.NOT_FOUND, "Tag not found", ErrorCode.NOT_FOUND);
     }
 
     const activePostCount = await prisma.blogPostTag.count({
@@ -428,11 +383,7 @@ export async function adminSoftDeleteBlogTag(tagId: string): Promise<void> {
         },
     });
     if (activePostCount > 0) {
-        throw new HttpError(
-            HttpStatus.CONFLICT,
-            "Tag is in use by active posts",
-            ErrorCode.VALIDATION_ERROR,
-        );
+        throw new HttpError(HttpStatus.CONFLICT, "Tag is in use by active posts", ErrorCode.VALIDATION_ERROR);
     }
 
     await prisma.tag.update({
@@ -461,28 +412,20 @@ export async function listPublishedBlogPosts(params: {
         tagId = tag.id;
     }
 
-    const where: import("../../generated/prisma/client.js").Prisma.BlogPostWhereInput =
-        {
-            deletedAt: null,
-            status: BlogPostStatus.PUBLISHED,
-            ...(params.verifiedOnly ? { isVerified: true } : {}),
-            ...(params.authorId ? { authorId: params.authorId } : {}),
-            ...(tagId ? { tags: { some: { tagId } } } : {}),
-            ...(q
-                ? {
-                      OR: [
-                          { title: { contains: q } },
-                          { excerpt: { contains: q } },
-                          { body: { contains: q } },
-                      ],
-                  }
-                : {}),
-        };
+    const where: import("../../generated/prisma/client.js").Prisma.BlogPostWhereInput = {
+        deletedAt: null,
+        status: BlogPostStatus.PUBLISHED,
+        ...(params.verifiedOnly ? { isVerified: true } : {}),
+        ...(params.authorId ? { authorId: params.authorId } : {}),
+        ...(tagId ? { tags: { some: { tagId } } } : {}),
+        ...(q
+            ? {
+                  OR: [{ title: { contains: q } }, { excerpt: { contains: q } }, { body: { contains: q } }],
+              }
+            : {}),
+    };
 
-    const orderBy =
-        params.sort === "updated"
-            ? { updatedAt: "desc" as const }
-            : { createdAt: "desc" as const };
+    const orderBy = params.sort === "updated" ? { updatedAt: "desc" as const } : { createdAt: "desc" as const };
 
     const [total, rows] = await prisma.$transaction([
         prisma.blogPost.count({ where }),
@@ -501,9 +444,7 @@ export async function listPublishedBlogPosts(params: {
     };
 }
 
-export async function getPublishedBlogPostBySlug(
-    slug: string,
-): Promise<BlogPostDetailDto | null> {
+export async function getPublishedBlogPostBySlug(slug: string): Promise<BlogPostDetailDto | null> {
     const prisma = getPrisma();
     const post = await prisma.blogPost.findFirst({
         where: {
@@ -543,10 +484,7 @@ export async function listMyBlogPosts(params: {
     };
 }
 
-export async function getMyBlogPostById(
-    userId: string,
-    postId: string,
-): Promise<BlogPostDetailDto | null> {
+export async function getMyBlogPostById(userId: string, postId: string): Promise<BlogPostDetailDto | null> {
     const prisma = getPrisma();
     const post = await prisma.blogPost.findFirst({
         where: { id: postId, authorId: userId, deletedAt: null },
@@ -580,8 +518,7 @@ export async function createBlogPostForUser(
         if (taken) {
             throw new HttpError(
                 HttpStatus.CONFLICT,
-                ERROR_MESSAGES[ErrorCode.HUB_SLUG_TAKEN] ??
-                    "Slug already taken",
+                ERROR_MESSAGES[ErrorCode.HUB_SLUG_TAKEN] ?? "Slug already taken",
                 ErrorCode.HUB_SLUG_TAKEN,
             );
         }
@@ -591,9 +528,7 @@ export async function createBlogPostForUser(
     }
 
     const excerpt =
-        input.excerpt !== undefined &&
-        input.excerpt !== null &&
-        String(input.excerpt).trim() !== ""
+        input.excerpt !== undefined && input.excerpt !== null && String(input.excerpt).trim() !== ""
             ? String(input.excerpt).trim()
             : excerptFromBody(input.body);
 
@@ -605,9 +540,7 @@ export async function createBlogPostForUser(
             body: input.body,
             excerpt,
             thumbnailUrl:
-                input.thumbnailUrl === undefined ||
-                input.thumbnailUrl === null ||
-                input.thumbnailUrl === ""
+                input.thumbnailUrl === undefined || input.thumbnailUrl === null || input.thumbnailUrl === ""
                     ? null
                     : input.thumbnailUrl.trim(),
             status,
@@ -652,11 +585,7 @@ export async function updateMyBlogPost(
         where: { id: postId, deletedAt: null },
     });
     if (!existing || existing.authorId !== userId) {
-        throw new HttpError(
-            HttpStatus.NOT_FOUND,
-            "Post not found",
-            ErrorCode.NOT_FOUND,
-        );
+        throw new HttpError(HttpStatus.NOT_FOUND, "Post not found", ErrorCode.NOT_FOUND);
     }
 
     if (input.slug?.trim() && input.slug.trim() !== existing.slug) {
@@ -667,8 +596,7 @@ export async function updateMyBlogPost(
         if (taken) {
             throw new HttpError(
                 HttpStatus.CONFLICT,
-                ERROR_MESSAGES[ErrorCode.HUB_SLUG_TAKEN] ??
-                    "Slug already taken",
+                ERROR_MESSAGES[ErrorCode.HUB_SLUG_TAKEN] ?? "Slug already taken",
                 ErrorCode.HUB_SLUG_TAKEN,
             );
         }
@@ -700,9 +628,7 @@ export async function updateMyBlogPost(
             ...(input.body !== undefined ? { body: input.body } : {}),
             ...(excerpt !== undefined ? { excerpt } : {}),
             ...(input.status !== undefined ? { status: input.status } : {}),
-            ...(input.slug?.trim() !== undefined
-                ? { slug: input.slug.trim() }
-                : {}),
+            ...(input.slug?.trim() !== undefined ? { slug: input.slug.trim() } : {}),
             ...(thumb !== undefined ? { thumbnailUrl: thumb } : {}),
         },
     });
@@ -711,15 +637,9 @@ export async function updateMyBlogPost(
         await replaceBlogPostTags(postId, input.tagIds);
     }
 
-    if (
-        prevStatus !== BlogPostStatus.PUBLISHED &&
-        nextStatus === BlogPostStatus.PUBLISHED
-    ) {
+    if (prevStatus !== BlogPostStatus.PUBLISHED && nextStatus === BlogPostStatus.PUBLISHED) {
         await awardPublishedBlogScore(existing.authorId, postId, likeCount);
-    } else if (
-        prevStatus === BlogPostStatus.PUBLISHED &&
-        nextStatus !== BlogPostStatus.PUBLISHED
-    ) {
+    } else if (prevStatus === BlogPostStatus.PUBLISHED && nextStatus !== BlogPostStatus.PUBLISHED) {
         await revokePublishedBlogScore(existing.authorId, postId, likeCount);
     }
 
@@ -730,20 +650,13 @@ export async function updateMyBlogPost(
     return mapPostListItem(reloaded as BlogPostRowList);
 }
 
-export async function softDeleteMyBlogPost(
-    userId: string,
-    postId: string,
-): Promise<void> {
+export async function softDeleteMyBlogPost(userId: string, postId: string): Promise<void> {
     const prisma = getPrisma();
     const existing = await prisma.blogPost.findFirst({
         where: { id: postId, deletedAt: null },
     });
     if (!existing || existing.authorId !== userId) {
-        throw new HttpError(
-            HttpStatus.NOT_FOUND,
-            "Post not found",
-            ErrorCode.NOT_FOUND,
-        );
+        throw new HttpError(HttpStatus.NOT_FOUND, "Post not found", ErrorCode.NOT_FOUND);
     }
     if (existing.status === BlogPostStatus.PUBLISHED) {
         const likeCount = await getBlogPostLikeCount(postId);
@@ -778,29 +691,25 @@ export async function adminListBlogPosts(params: {
         }
     }
 
-    const where: import("../../generated/prisma/client.js").Prisma.BlogPostWhereInput =
-        {
-            deletedAt: null,
-            ...(params.status ? { status: params.status } : {}),
-            ...(params.authorId ? { authorId: params.authorId } : {}),
-            ...(params.verifiedOnly ? { isVerified: true } : {}),
-            ...(tagId ? { tags: { some: { tagId } } } : {}),
-            ...(q
-                ? {
-                      OR: [
-                          { title: { contains: q } },
-                          { excerpt: { contains: q } },
-                          { body: { contains: q } },
-                          { slug: { contains: q } },
-                      ],
-                  }
-                : {}),
-        };
+    const where: import("../../generated/prisma/client.js").Prisma.BlogPostWhereInput = {
+        deletedAt: null,
+        ...(params.status ? { status: params.status } : {}),
+        ...(params.authorId ? { authorId: params.authorId } : {}),
+        ...(params.verifiedOnly ? { isVerified: true } : {}),
+        ...(tagId ? { tags: { some: { tagId } } } : {}),
+        ...(q
+            ? {
+                  OR: [
+                      { title: { contains: q } },
+                      { excerpt: { contains: q } },
+                      { body: { contains: q } },
+                      { slug: { contains: q } },
+                  ],
+              }
+            : {}),
+    };
 
-    const orderBy =
-        params.sort === "updated"
-            ? { updatedAt: "desc" as const }
-            : { createdAt: "desc" as const };
+    const orderBy = params.sort === "updated" ? { updatedAt: "desc" as const } : { createdAt: "desc" as const };
 
     const [total, rows] = await prisma.$transaction([
         prisma.blogPost.count({ where }),
@@ -819,9 +728,7 @@ export async function adminListBlogPosts(params: {
     };
 }
 
-export async function getAdminBlogPostById(
-    postId: string,
-): Promise<BlogPostDetailDto | null> {
+export async function getAdminBlogPostById(postId: string): Promise<BlogPostDetailDto | null> {
     const prisma = getPrisma();
     const post = await prisma.blogPost.findFirst({
         where: { id: postId, deletedAt: null },
@@ -846,11 +753,7 @@ export async function adminCreateBlogPost(input: {
         where: { id: input.authorId, deletedAt: null },
     });
     if (!author) {
-        throw new HttpError(
-            HttpStatus.BAD_REQUEST,
-            "Author not found",
-            ErrorCode.VALIDATION_ERROR,
-        );
+        throw new HttpError(HttpStatus.BAD_REQUEST, "Author not found", ErrorCode.VALIDATION_ERROR);
     }
 
     const status = input.status ?? BlogPostStatus.DRAFT;
@@ -874,9 +777,7 @@ export async function adminCreateBlogPost(input: {
     }
 
     const excerpt =
-        input.excerpt !== undefined &&
-        input.excerpt !== null &&
-        String(input.excerpt).trim() !== ""
+        input.excerpt !== undefined && input.excerpt !== null && String(input.excerpt).trim() !== ""
             ? String(input.excerpt).trim()
             : excerptFromBody(input.body);
 
@@ -888,9 +789,7 @@ export async function adminCreateBlogPost(input: {
             body: input.body,
             excerpt,
             thumbnailUrl:
-                input.thumbnailUrl === undefined ||
-                input.thumbnailUrl === null ||
-                input.thumbnailUrl === ""
+                input.thumbnailUrl === undefined || input.thumbnailUrl === null || input.thumbnailUrl === ""
                     ? null
                     : input.thumbnailUrl.trim(),
             status,
@@ -932,11 +831,7 @@ export async function adminUpdateBlogPost(
         where: { id: postId, deletedAt: null },
     });
     if (!existing) {
-        throw new HttpError(
-            HttpStatus.NOT_FOUND,
-            "Post not found",
-            ErrorCode.NOT_FOUND,
-        );
+        throw new HttpError(HttpStatus.NOT_FOUND, "Post not found", ErrorCode.NOT_FOUND);
     }
 
     if (input.authorId !== undefined) {
@@ -944,11 +839,7 @@ export async function adminUpdateBlogPost(
             where: { id: input.authorId, deletedAt: null },
         });
         if (!u) {
-            throw new HttpError(
-                HttpStatus.BAD_REQUEST,
-                "Author not found",
-                ErrorCode.VALIDATION_ERROR,
-            );
+            throw new HttpError(HttpStatus.BAD_REQUEST, "Author not found", ErrorCode.VALIDATION_ERROR);
         }
     }
 
@@ -983,8 +874,7 @@ export async function adminUpdateBlogPost(
 
     const prevStatus = existing.status;
     const nextStatus = input.status !== undefined ? input.status : prevStatus;
-    const nextAuthorId =
-        input.authorId !== undefined ? input.authorId : existing.authorId;
+    const nextAuthorId = input.authorId !== undefined ? input.authorId : existing.authorId;
     const likeCount = await getBlogPostLikeCount(postId);
 
     await prisma.blogPost.update({
@@ -994,12 +884,8 @@ export async function adminUpdateBlogPost(
             ...(input.body !== undefined ? { body: input.body } : {}),
             ...(excerpt !== undefined ? { excerpt } : {}),
             ...(input.status !== undefined ? { status: input.status } : {}),
-            ...(input.slug?.trim() !== undefined
-                ? { slug: input.slug.trim() }
-                : {}),
-            ...(input.authorId !== undefined
-                ? { authorId: input.authorId }
-                : {}),
+            ...(input.slug?.trim() !== undefined ? { slug: input.slug.trim() } : {}),
+            ...(input.authorId !== undefined ? { authorId: input.authorId } : {}),
             ...(thumb !== undefined ? { thumbnailUrl: thumb } : {}),
         },
     });
@@ -1008,15 +894,9 @@ export async function adminUpdateBlogPost(
         await replaceBlogPostTags(postId, input.tagIds);
     }
 
-    if (
-        prevStatus !== BlogPostStatus.PUBLISHED &&
-        nextStatus === BlogPostStatus.PUBLISHED
-    ) {
+    if (prevStatus !== BlogPostStatus.PUBLISHED && nextStatus === BlogPostStatus.PUBLISHED) {
         await awardPublishedBlogScore(nextAuthorId, postId, likeCount);
-    } else if (
-        prevStatus === BlogPostStatus.PUBLISHED &&
-        nextStatus !== BlogPostStatus.PUBLISHED
-    ) {
+    } else if (prevStatus === BlogPostStatus.PUBLISHED && nextStatus !== BlogPostStatus.PUBLISHED) {
         await revokePublishedBlogScore(existing.authorId, postId, likeCount);
     } else if (
         prevStatus === BlogPostStatus.PUBLISHED &&
@@ -1047,18 +927,13 @@ export async function adminUpdateBlogPostVerification(
         where: { id: postId, deletedAt: null },
     });
     if (!existing) {
-        throw new HttpError(
-            HttpStatus.NOT_FOUND,
-            "Post not found",
-            ErrorCode.NOT_FOUND,
-        );
+        throw new HttpError(HttpStatus.NOT_FOUND, "Post not found", ErrorCode.NOT_FOUND);
     }
 
     const normalizedNotes =
         input.verificationNotes === undefined
             ? undefined
-            : input.verificationNotes === null ||
-                String(input.verificationNotes).trim() === ""
+            : input.verificationNotes === null || String(input.verificationNotes).trim() === ""
               ? null
               : String(input.verificationNotes).trim();
 
@@ -1066,12 +941,8 @@ export async function adminUpdateBlogPostVerification(
         ? {
               isVerified: true,
               verifiedAt: existing.verifiedAt ?? new Date(),
-              verifiedByUserId: existing.isVerified
-                  ? existing.verifiedByUserId ?? adminUserId
-                  : adminUserId,
-              ...(normalizedNotes !== undefined
-                  ? { verificationNotes: normalizedNotes }
-                  : {}),
+              verifiedByUserId: existing.isVerified ? (existing.verifiedByUserId ?? adminUserId) : adminUserId,
+              ...(normalizedNotes !== undefined ? { verificationNotes: normalizedNotes } : {}),
           }
         : {
               isVerified: false,
@@ -1095,11 +966,7 @@ export async function adminSoftDeleteBlogPost(postId: string): Promise<void> {
         where: { id: postId, deletedAt: null },
     });
     if (!existing) {
-        throw new HttpError(
-            HttpStatus.NOT_FOUND,
-            "Post not found",
-            ErrorCode.NOT_FOUND,
-        );
+        throw new HttpError(HttpStatus.NOT_FOUND, "Post not found", ErrorCode.NOT_FOUND);
     }
     if (existing.status === BlogPostStatus.PUBLISHED) {
         const likeCount = await getBlogPostLikeCount(postId);
@@ -1111,9 +978,7 @@ export async function adminSoftDeleteBlogPost(postId: string): Promise<void> {
     });
 }
 
-async function assertPublishedBlogPostForComments(
-    postId: string,
-): Promise<void> {
+async function assertPublishedBlogPostForComments(postId: string): Promise<void> {
     const prisma = getPrisma();
     const post = await prisma.blogPost.findFirst({
         where: {
@@ -1124,11 +989,7 @@ async function assertPublishedBlogPostForComments(
         select: { id: true },
     });
     if (!post) {
-        throw new HttpError(
-            HttpStatus.NOT_FOUND,
-            "Post not found",
-            ErrorCode.NOT_FOUND,
-        );
+        throw new HttpError(HttpStatus.NOT_FOUND, "Post not found", ErrorCode.NOT_FOUND);
     }
 }
 
@@ -1141,11 +1002,7 @@ export async function createBlogComment(
     const prisma = getPrisma();
 
     const parentId =
-        input.parentId === undefined ||
-        input.parentId === null ||
-        input.parentId === ""
-            ? null
-            : input.parentId;
+        input.parentId === undefined || input.parentId === null || input.parentId === "" ? null : input.parentId;
 
     if (parentId) {
         const parent = await prisma.blogComment.findFirst({
@@ -1153,19 +1010,11 @@ export async function createBlogComment(
             select: { id: true },
         });
         if (!parent) {
-            throw new HttpError(
-                HttpStatus.BAD_REQUEST,
-                "Parent comment not found",
-                ErrorCode.VALIDATION_ERROR,
-            );
+            throw new HttpError(HttpStatus.BAD_REQUEST, "Parent comment not found", ErrorCode.VALIDATION_ERROR);
         }
         const depth = await blogCommentDepthFromRoot(parentId);
         if (depth < 0 || depth >= BLOG_COMMENT_MAX_DEPTH) {
-            throw new HttpError(
-                HttpStatus.BAD_REQUEST,
-                "Max reply depth exceeded",
-                ErrorCode.VALIDATION_ERROR,
-            );
+            throw new HttpError(HttpStatus.BAD_REQUEST, "Max reply depth exceeded", ErrorCode.VALIDATION_ERROR);
         }
     }
 
@@ -1196,18 +1045,10 @@ export async function updateBlogComment(
         include: { author: { include: { profile: true } } },
     });
     if (!existing) {
-        throw new HttpError(
-            HttpStatus.NOT_FOUND,
-            "Comment not found",
-            ErrorCode.NOT_FOUND,
-        );
+        throw new HttpError(HttpStatus.NOT_FOUND, "Comment not found", ErrorCode.NOT_FOUND);
     }
     if (existing.authorId !== userId) {
-        throw new HttpError(
-            HttpStatus.FORBIDDEN,
-            ERROR_MESSAGES[ErrorCode.FORBIDDEN],
-            ErrorCode.FORBIDDEN,
-        );
+        throw new HttpError(HttpStatus.FORBIDDEN, ERROR_MESSAGES[ErrorCode.FORBIDDEN], ErrorCode.FORBIDDEN);
     }
 
     const updated = await prisma.blogComment.update({
@@ -1221,29 +1062,17 @@ export async function updateBlogComment(
     return mapBlogCommentRowToDto(updated as BlogCommentAuthorRow);
 }
 
-export async function softDeleteBlogComment(
-    userId: string,
-    blogPostId: string,
-    commentId: string,
-): Promise<void> {
+export async function softDeleteBlogComment(userId: string, blogPostId: string, commentId: string): Promise<void> {
     const prisma = getPrisma();
     const existing = await prisma.blogComment.findFirst({
         where: { id: commentId, blogPostId, deletedAt: null },
         select: { id: true, authorId: true },
     });
     if (!existing) {
-        throw new HttpError(
-            HttpStatus.NOT_FOUND,
-            "Comment not found",
-            ErrorCode.NOT_FOUND,
-        );
+        throw new HttpError(HttpStatus.NOT_FOUND, "Comment not found", ErrorCode.NOT_FOUND);
     }
     if (existing.authorId !== userId) {
-        throw new HttpError(
-            HttpStatus.FORBIDDEN,
-            ERROR_MESSAGES[ErrorCode.FORBIDDEN],
-            ErrorCode.FORBIDDEN,
-        );
+        throw new HttpError(HttpStatus.FORBIDDEN, ERROR_MESSAGES[ErrorCode.FORBIDDEN], ErrorCode.FORBIDDEN);
     }
     await prisma.blogComment.update({
         where: { id: commentId },
@@ -1266,18 +1095,10 @@ export async function toggleBlogPostLike(
         select: { id: true, authorId: true },
     });
     if (!post) {
-        throw new HttpError(
-            HttpStatus.NOT_FOUND,
-            "Post not found",
-            ErrorCode.NOT_FOUND,
-        );
+        throw new HttpError(HttpStatus.NOT_FOUND, "Post not found", ErrorCode.NOT_FOUND);
     }
     if (post.authorId === userId) {
-        throw new HttpError(
-            HttpStatus.CONFLICT,
-            "Cannot like your own post",
-            ErrorCode.VALIDATION_ERROR,
-        );
+        throw new HttpError(HttpStatus.CONFLICT, "Cannot like your own post", ErrorCode.VALIDATION_ERROR);
     }
 
     const existing = await prisma.blogPostLike.findUnique({
@@ -1372,9 +1193,7 @@ export async function getBlogPostsEngagementBatch(
     postIds: string[],
 ): Promise<Array<{ postId: string; liked: boolean; saved: boolean }>> {
     const prisma = getPrisma();
-    const unique = [
-        ...new Set(postIds.map((x) => x.trim()).filter(Boolean)),
-    ].slice(0, ENGAGEMENT_BATCH_MAX);
+    const unique = [...new Set(postIds.map((x) => x.trim()).filter(Boolean))].slice(0, ENGAGEMENT_BATCH_MAX);
     if (unique.length === 0) return [];
 
     const published = await prisma.blogPost.findMany({
@@ -1440,4 +1259,107 @@ export async function listMySavedBlogPosts(params: {
         total,
         items: rows.map((r) => mapPostListItem(r.blogPost as BlogPostRowList)),
     };
+}
+
+export async function createBlogByAI() {
+    const prisma = getPrisma();
+
+    // 1. Lấy thông tin cơ bản
+    const user = await prisma.user.findFirst({ where: { role: "ADMIN" } });
+    const idea = await prisma.blogIdea.findFirst({ where: { status: "PENDING" } });
+
+    if (!idea || !user) return "No pending idea or admin found";
+
+    // 2. Lấy Tags và Slugs hiện có để tránh trùng
+    const tags = await prisma.tag.findMany({ select: { name: true } });
+
+    // Lấy 100 slugs bài viết gần nhất
+    const existingPosts = await prisma.blogPost.findMany({
+        select: { slug: true },
+        orderBy: { createdAt: "desc" },
+    });
+    const existingSlugs = existingPosts.map((p) => p.slug).join(", ");
+
+    const prompt = `
+        Nhiệm vụ: Viết bài blog luật chuyên sâu và đề xuất thẻ (tags).
+
+        THÔNG TIN ĐẦU VÀO:
+        - Ý tưởng: ${idea.name}
+        - Mô tả: ${idea.description}
+        - Danh sách Tags hiện có: ${tags.map((t) => t.name).join(", ")}
+
+        DANH SÁCH SLUGS ĐÃ TỒN TẠI (TUYỆT ĐỐI KHÔNG DÙNG LẠI):
+        [${existingSlugs}]
+
+        YÊU CẦU NỘI DUNG:
+        1. Ngôn ngữ: Tiếng Việt, phong cách luật sư chuyên nghiệp.
+        2. Định dạng Body: Sử dụng thẻ HTML sạch (h2, p, ul, li, strong) cho Tiptap. KHÔNG dùng Markdown.
+        3. Slug: Phải là duy nhất, không trùng với danh sách trên. Nếu tiêu đề tương tự, hãy thêm hậu tố đặc biệt hoặc diễn đạt khác đi.
+
+        YÊU CẦU ĐỊNH DẠNG ĐẦU RA:
+        - Trả về DUY NHẤT một JSON object. KHÔNG bọc trong \`\`\`json.
+        {
+            "blog": { "title": "...", "slug": "...", "excerpt": "...", "body": "..." },
+            "new_tags": [{ "name": "...", "slug": "..." }]
+        }
+    `;
+
+    try {
+        const AIResult = await aiService.generateGoogleText(prompt);
+        const cleanJson = AIResult.trim()
+            .replace(/^```json\n?/, "")
+            .replace(/\n?```$/, "")
+            .trim();
+        const data = JSON.parse(cleanJson);
+        const { blog, new_tags } = data;
+
+        // 3. Tạo Blog (Dùng transaction để đảm bảo tính toàn vẹn dữ liệu)
+        return await prisma.$transaction(async (tx) => {
+            // Kiểm tra lại slug một lần nữa ở phía code cho chắc chắn
+            const checkSlug = await tx.blogPost.findUnique({ where: { slug: blog.slug } });
+            const finalSlug = checkSlug ? `${blog.slug}-${Date.now()}` : blog.slug;
+
+            const blogResult = await tx.blogPost.create({
+                data: {
+                    title: blog.title,
+                    slug: finalSlug,
+                    excerpt: blog.excerpt,
+                    body: blog.body,
+                    authorId: user.id,
+                    status: "PUBLISHED",
+                },
+            });
+
+            // 4. Xử lý Tags
+            if (new_tags && new_tags.length > 0) {
+                await tx.tag.createMany({
+                    data: new_tags,
+                    skipDuplicates: true,
+                });
+
+                const tagsFromDb = await tx.tag.findMany({
+                    where: { slug: { in: new_tags.map((t: any) => t.slug) } },
+                    select: { id: true },
+                });
+
+                await tx.blogPostTag.createMany({
+                    data: tagsFromDb.map((t) => ({
+                        blogPostId: blogResult.id,
+                        tagId: t.id,
+                    })),
+                });
+            }
+
+            // 5. Cập nhật Idea
+            await tx.blogIdea.update({
+                where: { id: idea.id },
+                data: { status: "COMPLETED" },
+            });
+
+            return "Create blog successfully";
+        });
+    } catch (error) {
+        console.error("Lỗi thực thi CreateBlogByAI:", error);
+        return "Failed to create blog";
+    }
 }

@@ -559,3 +559,32 @@ enum FeedbackStatus {
     COMPLETED
     FAILED
 }
+
+model BlogIdea {
+    id          Int        @id @default(autoincrement())
+    name        String
+    description String     @db.Text
+    status      IdeaStatus @default(PENDING)
+
+    createdAt DateTime @default(now()) @map("created_at")
+    updatedAt DateTime @updatedAt @map("updated_at")
+
+    @@map("blog_ideas")
+}
+
+enum IdeaStatus {
+    PENDING
+    COMPLETED
+    FAILED
+}
+
+model ScheduleBlogSystem {
+    id       String  @id @default(cuid())
+    isActive Boolean @default(true) @map("is_active")
+    model    String
+    prompt   String  @db.Text
+
+    updatedAt DateTime @updatedAt @map("updated_at")
+
+    @@map("schedule_blog_system")
+}
