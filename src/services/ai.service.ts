@@ -45,13 +45,35 @@ class AIService {
         return embeddings;
     }
 
-    async generateStreamText(prompt: string, model = "gemini-2.5-flash"): Promise<StreamTextResult<any, any>> {
-        const result = streamText({
-            model: google(model),
-            prompt,
-        });
+    async generateStreamText(
+        prompt: string,
+        options?: { onFinish?: (text: string) => Promise<void> },
+        model = "gemini-2.5-flash",
+    ): Promise<StreamTextResult<any, any>> {
+        const execute = (m: string) =>
+            streamText({
+                model: google(m),
+                prompt,
+                providerOptions: {
+                    google: {
+                        thinkingConfig: { thinkingBudget: 2048 }, // Tận dụng sức mạnh 2.5
+                    },
+                },
+                onFinish: async (event) => {
+                    if (options?.onFinish) await options.onFinish(event.text);
+                },
+            });
 
-        return result;
+        try {
+            return await execute(model);
+        } catch (error: any) {
+            // Nếu 2.5 hết lượt, nhảy qua 2.0-flash hoặc 1.5-pro (thường bản Pro ít bị limit hơn bản Flash Free)
+            if (error.statusCode === 429) {
+                console.warn("2.5 Limit rồi! Nhảy qua bản Pro chữa cháy...");
+                return await execute("gemini-1.5-pro");
+            }
+            throw error;
+        }
     }
 }
 

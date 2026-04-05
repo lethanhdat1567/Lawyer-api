@@ -95,39 +95,34 @@ class AdminStatsService {
             recentPublishedBlogPosts,
             recentChatMessages,
         ] = await Promise.all([
-            prisma.user.count({ where: { deletedAt: null } }),
+            prisma.user.count(),
             prisma.user.count({
                 where: {
-                    deletedAt: null,
                     createdAt: { gte: last7dStart },
                 },
             }),
             prisma.user.count({
                 where: {
-                    deletedAt: null,
                     emailVerifiedAt: { not: null },
                 },
             }),
             prisma.lawyerVerification.count({
                 where: {
                     status: LawyerVerificationStatus.PENDING,
-                    deletedAt: null,
                 },
             }),
             prisma.lawyerVerification.count({
                 where: {
                     status: LawyerVerificationStatus.APPROVED,
-                    deletedAt: null,
                 },
             }),
-            prisma.hubPost.count({ where: { deletedAt: null } }),
-            prisma.hubComment.count({ where: { deletedAt: null } }),
+            prisma.hubPost.count(),
+            prisma.hubComment.count(),
             prisma.blogPost.count({
-                where: { deletedAt: null, status: BlogPostStatus.PUBLISHED },
+                where: { status: BlogPostStatus.PUBLISHED },
             }),
             prisma.blogPost.count({
                 where: {
-                    deletedAt: null,
                     status: BlogPostStatus.PUBLISHED,
                     isVerified: false,
                 },
@@ -135,7 +130,6 @@ class AdminStatsService {
             prisma.userContributionScore.count({
                 where: {
                     score: { gt: 0 },
-                    user: { deletedAt: null },
                 },
             }),
             prisma.assistantMessage.count(),
@@ -143,28 +137,24 @@ class AdminStatsService {
             prisma.chatSession.count(),
             prisma.user.findMany({
                 where: {
-                    deletedAt: null,
                     createdAt: { gte: rangeStart },
                 },
                 select: { createdAt: true },
             }),
             prisma.hubPost.findMany({
                 where: {
-                    deletedAt: null,
                     createdAt: { gte: rangeStart },
                 },
                 select: { createdAt: true },
             }),
             prisma.hubComment.findMany({
                 where: {
-                    deletedAt: null,
                     createdAt: { gte: rangeStart },
                 },
                 select: { createdAt: true },
             }),
             prisma.blogPost.findMany({
                 where: {
-                    deletedAt: null,
                     status: BlogPostStatus.PUBLISHED,
                     createdAt: { gte: rangeStart },
                 },

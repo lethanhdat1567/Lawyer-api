@@ -1,12 +1,10 @@
 import { CheerioCrawler, CheerioRoot } from "crawlee";
 import { LawArticleInsert } from "../../types/crawl.js";
 import { LawParserHelper } from "../../lib/lawParser.js";
-import aiService from "../ai.service.js";
 import { getSupabase } from "../../lib/supabase.js";
+import { LocalAiService } from "../localAi.service.js";
 
 class AdminCrawlService {
-    private TEST_LIMIT: number = 10;
-
     private cleanPage($: CheerioRoot) {
         $(
             '.tieng-anh, .English, .pro-member-note, .note-pro, [style*="color: #0000FF"], [style*="color:blue"]',
@@ -16,22 +14,18 @@ class AdminCrawlService {
 
     private async getCrawler(results: LawArticleInsert[]) {
         return new CheerioCrawler({
-            requestHandlerTimeoutSecs: 900,
+            requestHandlerTimeoutSecs: 3600,
             requestHandler: async ({ $, request, log }) => {
                 this.cleanPage($);
 
                 const lawTitle = $("h1").text().trim() || "Văn bản pháp luật";
                 const tempArticles: LawArticleInsert[] = [];
-
                 let currentChapter: string | null = null;
                 let currentArticle: LawArticleInsert | null = null;
                 let skipUntilNextArticle = false;
 
-                // BƯỚC 1: TRÍCH XUẤT TEXT
+                // BƯỚC 1: TRÍCH XUẤT TEXT (Giữ nguyên logic của bạn)
                 $(".content1 p, .content1 div").each((_, el) => {
-                    // Dừng trích xuất nếu đã đủ số lượng TEST_LIMIT
-                    if (tempArticles.length >= this.TEST_LIMIT) return false;
-
                     const node = $(el);
                     const text = node.text().replace(/\s+/g, " ").trim();
                     if (!text || text.includes("Thành viên Pro")) return;
@@ -47,14 +41,12 @@ class AdminCrawlService {
                     }
 
                     const isArticleHeader = node.find('a[name^="dieu_"]').length > 0 || /^Điều\s+\d+\./i.test(text);
-
                     if (isArticleHeader) {
                         if (LawParserHelper.isEnglish(text)) {
                             skipUntilNextArticle = true;
                             return;
                         }
                         if (currentArticle) tempArticles.push(currentArticle);
-
                         currentArticle = {
                             law_title: lawTitle,
                             chapter: currentChapter,
@@ -79,44 +71,42 @@ class AdminCrawlService {
                     }
                 });
 
-                // Đẩy article cuối cùng vào list nếu còn
-                if (currentArticle && tempArticles.length < this.TEST_LIMIT) {
-                    tempArticles.push(currentArticle);
-                }
+                if (currentArticle) tempArticles.push(currentArticle);
 
                 // BƯỚC 2: LỌC DỮ LIỆU SẠCH
                 const finalData = tempArticles.filter(
                     (item) => item.content.trim().length > 20 && LawParserHelper.hasVietnamese(item.content),
                 );
 
-                log.info(`Test Mode Active: Processing ${finalData.length} articles (Limit: ${this.TEST_LIMIT})`);
-
-                // BƯỚC 3: XỬ LÝ EMBEDDING (Gửi 1 mẻ duy nhất cho nhanh)
+                // BƯỚC 3: LOCAL EMBEDDING
                 if (finalData.length > 0) {
-                    const textsToEmbed = finalData.map((item) => {
-                        return `Văn bản: ${item.law_title}\n${item.chapter ? `Chương: ${item.chapter}\n` : ""}Tiêu đề: ${item.article_title}\nNội dung: ${item.content}`
-                            .replace(/\s+/g, " ")
-                            .trim();
+                    log.info(`Crawled ${finalData.length} articles. Starting LOCAL Embedding...`);
+
+                    // Gom toàn bộ text cần embed
+                    const allTexts = finalData.map((item) => {
+                        return `${item.law_title} ${item.article_title} ${item.content}`.replace(/\s+/g, " ").trim();
                     });
 
                     try {
-                        const embeddings = await aiService.generateBatchEmbeddings(textsToEmbed);
+                        // Gọi một lần vào Service, để Service tự quản lý việc chia nhỏ hoặc chạy loop
+                        const allEmbeddings = await LocalAiService.generateBatch(allTexts);
+
                         finalData.forEach((item, idx) => {
-                            item.embedding = embeddings[idx] || [];
+                            item.embedding = allEmbeddings[idx] || [];
                         });
-                        log.info(`Successfully generated embeddings for ${finalData.length} items.`);
-                    } catch (error) {
-                        log.error(`Embedding failed: ${error}`);
-                        throw error;
+
+                        log.info(`✅ Hoàn thành LOCAL embedding cho ${finalData.length} mục.`);
+                    } catch (err) {
+                        log.error(`❌ Lỗi khi tạo embedding: ${err}`);
+                        throw err;
                     }
                 }
 
                 results.push(...finalData);
             },
-            maxRequestsPerCrawl: 1,
+            maxRequestsPerCrawl: 100,
         });
     }
-
     public async crawlAndInsert(page_url: string) {
         const results: LawArticleInsert[] = [];
         const crawler = await this.getCrawler(results);

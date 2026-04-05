@@ -77,7 +77,7 @@ class AdminVerificationsService {
         status?: LawyerVerificationStatus;
     }) {
         const prisma = getPrisma();
-        const where: Prisma.LawyerVerificationWhereInput = { deletedAt: null };
+        const where: Prisma.LawyerVerificationWhereInput = {};
         if (params.status) where.status = params.status;
 
         const skip = (params.page - 1) * params.pageSize;
@@ -107,7 +107,7 @@ class AdminVerificationsService {
     ) {
         const prisma = getPrisma();
         const row = await prisma.lawyerVerification.findFirst({
-            where: { id: verificationId, deletedAt: null },
+            where: { id: verificationId },
         });
         if (!row) {
             throw new HttpError(

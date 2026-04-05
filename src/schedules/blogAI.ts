@@ -1,9 +1,10 @@
 import { createBlogByAI } from "../services/blog.service.js";
 
 async function blogAI() {
-    const result = await createBlogByAI();
-    console.log(result);
+    console.log("Blog AI started");
+    await createBlogByAI();
 
+    console.log("Blog AI completed");
     return;
 }
 

@@ -63,7 +63,7 @@ class LawyerVerificationService {
     async getMyVerification(userId: string) {
         const prisma = getPrisma();
         const row = await prisma.lawyerVerification.findFirst({
-            where: { userId, deletedAt: null },
+            where: { userId },
             include: verificationInclude,
         });
 
@@ -76,7 +76,7 @@ class LawyerVerificationService {
     ) {
         const prisma = getPrisma();
         const existing = await prisma.lawyerVerification.findFirst({
-            where: { userId, deletedAt: null },
+            where: { userId },
         });
         if (existing) {
             throw new HttpError(
@@ -106,7 +106,7 @@ class LawyerVerificationService {
     ) {
         const prisma = getPrisma();
         const current = await prisma.lawyerVerification.findFirst({
-            where: { userId, deletedAt: null },
+            where: { userId },
         });
         if (!current) {
             throw new HttpError(

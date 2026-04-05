@@ -1,9 +1,9 @@
 import {
     adminCreateBlogTag,
     adminCreateBlogPost,
+    adminDeleteBlogPost,
+    adminDeleteBlogTag,
     adminListBlogPosts,
-    adminSoftDeleteBlogTag,
-    adminSoftDeleteBlogPost,
     adminUpdateBlogTag,
     adminUpdateBlogPost,
     adminUpdateBlogPostVerification,
@@ -13,13 +13,13 @@ import {
 class BlogAdminService {
     createTag = adminCreateBlogTag;
     updateTag = adminUpdateBlogTag;
-    deleteTag = adminSoftDeleteBlogTag;
+    deleteTag = adminDeleteBlogTag;
     getPostById = getAdminBlogPostById;
     listPosts = adminListBlogPosts;
     createPost = adminCreateBlogPost;
     updatePost = adminUpdateBlogPost;
     updatePostVerification = adminUpdateBlogPostVerification;
-    deletePost = adminSoftDeleteBlogPost;
+    deletePost = adminDeleteBlogPost;
 }
 
 export default new BlogAdminService();

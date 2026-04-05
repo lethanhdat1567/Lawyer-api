@@ -17,4 +17,10 @@ systemRoutesRouter.use("/auth", createAuthRateLimiter(), authRouter);
 systemRoutesRouter.use("/upload", createAuthRateLimiter(), uploadRouter);
 systemRoutesRouter.use("/chat-ai", createAuthRateLimiter(), optionalAuth, chatAIRouter);
 systemRoutesRouter.use("/blog-idea", createAuthRateLimiter(), authenticate, requireRole(UserRole.ADMIN), blogIdea);
-systemRoutesRouter.use("/blog-schedule", createAuthRateLimiter(), blogSchedule);
+systemRoutesRouter.use(
+    "/blog-schedule",
+    createAuthRateLimiter(),
+    authenticate,
+    requireRole(UserRole.ADMIN),
+    blogSchedule,
+);

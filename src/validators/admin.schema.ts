@@ -64,3 +64,18 @@ export const adminCrawlApproveBodySchema = z.object({
     }),
     desiredStatus: z.enum([CrawlLogStatus.SUCCESS, CrawlLogStatus.FAILED]).optional().default(CrawlLogStatus.SUCCESS),
 });
+
+export const adminAiConfigPatchBodySchema = z
+    .object({
+        advisor_prompt: z.string().max(100_000).optional(),
+        community_prompt: z.string().max(100_000).optional(),
+        blog_prompt: z.string().max(100_000).optional(),
+    })
+    .strict()
+    .refine(
+        (data) =>
+            data.advisor_prompt !== undefined ||
+            data.community_prompt !== undefined ||
+            data.blog_prompt !== undefined,
+        { message: "At least one of advisor_prompt, community_prompt, or blog_prompt is required" },
+    );

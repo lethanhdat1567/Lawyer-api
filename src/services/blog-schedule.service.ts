@@ -1,6 +1,13 @@
 import { getPrisma } from "../lib/prisma.js";
 
 class BlogScheduleService {
+    async getSchedule() {
+        const prisma = getPrisma();
+        return prisma.scheduleBlogSystem.findFirst({
+            orderBy: { updatedAt: "desc" },
+        });
+    }
+
     async toggleSchedule(id: string) {
         const prisma = getPrisma();
 

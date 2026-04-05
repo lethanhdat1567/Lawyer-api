@@ -16,6 +16,7 @@ enum UserRole {
     USER
     VERIFIED_LAWYER
     ADMIN
+    AI_BOT
 }
 
 enum LawyerVerificationStatus {
@@ -74,7 +75,6 @@ model User {
     role            UserRole  @default(USER)
     createdAt       DateTime  @default(now()) @map("created_at")
     updatedAt       DateTime  @updatedAt @map("updated_at")
-    deletedAt       DateTime? @map("deleted_at")
 
     profile                 Profile?
     lawyerVerifications     LawyerVerification[]     @relation("LawyerVerificationSubject")
@@ -170,7 +170,6 @@ model Profile {
     contributorOptOut Boolean   @default(false) @map("contributor_opt_out")
     createdAt         DateTime  @default(now()) @map("created_at")
     updatedAt         DateTime  @updatedAt @map("updated_at")
-    deletedAt         DateTime? @map("deleted_at")
 
     user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -189,7 +188,6 @@ model LawyerVerification {
     note             String?                  @db.Text
     createdAt        DateTime                 @default(now()) @map("created_at")
     updatedAt        DateTime                 @updatedAt @map("updated_at")
-    deletedAt        DateTime?                @map("deleted_at")
 
     user       User  @relation("LawyerVerificationSubject", fields: [userId], references: [id], onDelete: Cascade)
     reviewedBy User? @relation("LawyerVerificationReviewer", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
@@ -207,7 +205,6 @@ model AssistantConversation {
     title     String?
     createdAt DateTime  @default(now()) @map("created_at")
     updatedAt DateTime  @updatedAt @map("updated_at")
-    deletedAt DateTime? @map("deleted_at")
 
     user     User               @relation(fields: [userId], references: [id], onDelete: Cascade)
     messages AssistantMessage[]
@@ -257,7 +254,6 @@ model HubCategory {
     sortOrder Int       @default(0) @map("sort_order")
     createdAt DateTime  @default(now()) @map("created_at")
     updatedAt DateTime  @updatedAt @map("updated_at")
-    deletedAt DateTime? @map("deleted_at")
 
     posts HubPost[]
 
@@ -274,7 +270,6 @@ model HubPost {
     status     HubPostStatus @default(PUBLISHED)
     createdAt  DateTime      @default(now()) @map("created_at")
     updatedAt  DateTime      @updatedAt @map("updated_at")
-    deletedAt  DateTime?     @map("deleted_at")
 
     category    HubCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
     author      User         @relation("HubPostAuthor", fields: [authorId], references: [id], onDelete: Cascade)
@@ -311,7 +306,6 @@ model HubComment {
     body      String    @db.Text
     createdAt DateTime  @default(now()) @map("created_at")
     updatedAt DateTime  @updatedAt @map("updated_at")
-    deletedAt DateTime? @map("deleted_at")
 
     post          HubPost            @relation(fields: [postId], references: [id], onDelete: Cascade)
     parent        HubComment?        @relation("CommentThread", fields: [parentId], references: [id], onDelete: SetNull)
@@ -356,7 +350,6 @@ model BlogPost {
     legalCorpusVersion String?        @map("legal_corpus_version")
     createdAt          DateTime       @default(now()) @map("created_at")
     updatedAt          DateTime       @updatedAt @map("updated_at")
-    deletedAt          DateTime?      @map("deleted_at")
 
     author        User               @relation("BlogPostAuthor", fields: [authorId], references: [id], onDelete: Cascade)
     verifiedBy    User?              @relation("BlogPostVerifiedBy", fields: [verifiedByUserId], references: [id], onDelete: SetNull)
@@ -378,7 +371,6 @@ model Tag {
     name      String
     createdAt DateTime  @default(now()) @map("created_at")
     updatedAt DateTime  @updatedAt @map("updated_at")
-    deletedAt DateTime? @map("deleted_at")
 
     posts BlogPostTag[]
 
@@ -405,7 +397,6 @@ model BlogComment {
     body       String    @db.Text
     createdAt  DateTime  @default(now()) @map("created_at")
     updatedAt  DateTime  @updatedAt @map("updated_at")
-    deletedAt  DateTime? @map("deleted_at")
 
     blogPost      BlogPost           @relation(fields: [blogPostId], references: [id], onDelete: Cascade)
     parent        BlogComment?       @relation("BlogCommentThread", fields: [parentId], references: [id], onDelete: SetNull)
@@ -574,6 +565,7 @@ model BlogIdea {
 
 enum IdeaStatus {
     PENDING
+    PROCESSING
     COMPLETED
     FAILED
 }
@@ -587,4 +579,18 @@ model ScheduleBlogSystem {
     updatedAt DateTime @updatedAt @map("updated_at")
 
     @@map("schedule_blog_system")
+}
+
+model AiConfig {
+  id               Int      @id @default(1)
+
+  advisor_prompt   String   @map("advisor_prompt") @db.Text
+
+  community_prompt String   @map("community_prompt") @db.Text
+
+  blog_prompt      String   @map("blog_prompt") @db.Text
+
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  @@map("ai_configs")
 }

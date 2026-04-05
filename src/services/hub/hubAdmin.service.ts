@@ -1,7 +1,7 @@
 import {
     adminCreateHubPost,
+    adminDeleteHubPost,
     adminListHubPosts,
-    adminSoftDeleteHubPost,
     adminUpdateHubPost,
     getAdminHubPostDetail,
 } from "../hub.service.js";
@@ -11,7 +11,7 @@ class HubAdminService {
     listPosts = adminListHubPosts;
     createPost = adminCreateHubPost;
     updatePost = adminUpdateHubPost;
-    deletePost = adminSoftDeleteHubPost;
+    deletePost = adminDeleteHubPost;
 }
 
 export default new HubAdminService();

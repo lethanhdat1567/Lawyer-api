@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { adminAiConfigRouter } from "./adminAiConfig.route.js";
 import { adminCrawlRouter } from "./adminCrawl.route.js";
 import { adminLeaderboardRouter } from "./adminLeaderboard.route.js";
 import { adminStatsRouter } from "./adminStats.route.js";
@@ -8,6 +9,7 @@ import { adminVerificationsRouter } from "./adminVerifications.route.js";
 export const adminRouter = Router();
 
 adminRouter.use(adminStatsRouter);
+adminRouter.use("/ai-config", adminAiConfigRouter);
 adminRouter.use(adminCrawlRouter);
 adminRouter.use(adminUsersRouter);
 adminRouter.use(adminVerificationsRouter);

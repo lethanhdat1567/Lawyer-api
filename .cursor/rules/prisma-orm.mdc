@@ -13,7 +13,7 @@ alwaysApply: false
 - **Schema Design**:
   - Use PascalCase for model names and camelCase for field names.
   - Always include `createdAt` and `updatedAt` DateTime fields with `@default(now())` and `@updatedAt`.
-  - **Soft Delete**: Implement `deletedAt DateTime?` for all primary entities to prevent accidental data loss.
+  - **Deletes**: Use hard deletes (`prisma.*.delete`) with schema `onDelete` behavior; do not add `deletedAt` for soft delete unless product explicitly requires it.
   - Use `@id` for primary keys (prefer `String @id @default(cuid())` for scalability).
   - Define explicit relationships with `@relation` and meaningful names.
   - Keep schemas normalized; use Enums (mapped in TS) for static categories.

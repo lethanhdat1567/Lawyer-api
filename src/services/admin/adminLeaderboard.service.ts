@@ -22,9 +22,7 @@ class AdminLeaderboardService {
         offset: number;
     }): Promise<{ items: AdminLeaderboardItemDto[]; total: number }> {
         const prisma = getPrisma();
-        const where: Prisma.UserContributionScoreWhereInput = {
-            user: { deletedAt: null },
-        };
+        const where: Prisma.UserContributionScoreWhereInput = {};
 
         const total = await prisma.userContributionScore.count({ where });
         const rows = await prisma.userContributionScore.findMany({

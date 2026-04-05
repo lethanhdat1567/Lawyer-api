@@ -98,7 +98,7 @@ class AuthService {
             where: { email },
             include: { profile: true },
         });
-        if (!user?.passwordHash || user.deletedAt) {
+        if (!user?.passwordHash) {
             throw new HttpError(
                 HttpStatus.UNAUTHORIZED,
                 ERROR_MESSAGES[ErrorCode.INVALID_CREDENTIALS],
@@ -169,7 +169,7 @@ class AuthService {
         const prisma = getPrisma();
         const email = emailRaw.trim().toLowerCase();
         const user = await prisma.user.findUnique({ where: { email } });
-        if (!user?.passwordHash || user.deletedAt) return AuthCopy.FORGOT_PASSWORD_SENT;
+        if (!user?.passwordHash) return AuthCopy.FORGOT_PASSWORD_SENT;
 
         await prisma.passwordResetToken.updateMany({
             where: { userId: user.id, consumedAt: null },
@@ -191,7 +191,7 @@ class AuthService {
         const prisma = getPrisma();
         const email = input.email.trim().toLowerCase();
         const user = await prisma.user.findUnique({ where: { email } });
-        if (!user?.passwordHash || user.deletedAt) {
+        if (!user?.passwordHash) {
             throw new HttpError(
                 HttpStatus.BAD_REQUEST,
                 ERROR_MESSAGES[ErrorCode.INVALID_OR_EXPIRED_TOKEN],
@@ -260,13 +260,6 @@ class AuthService {
         });
         if (existingIdentity) {
             const u = existingIdentity.user;
-            if (u.deletedAt) {
-                throw new HttpError(
-                    HttpStatus.UNAUTHORIZED,
-                    ERROR_MESSAGES[ErrorCode.UNAUTHENTICATED],
-                    ErrorCode.UNAUTHENTICATED,
-                );
-            }
             if (emailVerified && !u.emailVerifiedAt) {
                 await prisma.user.update({
                     where: { id: u.id },

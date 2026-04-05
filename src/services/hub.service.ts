@@ -14,7 +14,7 @@ const EXCERPT_LEN = 180;
 const HUB_COMMENT_MAX_DEPTH = 4;
 
 const hubActiveCommentsCount = {
-    select: { comments: { where: { deletedAt: null } } },
+    select: { comments: true },
 } as const;
 
 const hubCommentIncludeAuthorAndLikes = {
@@ -164,7 +164,7 @@ async function hubCommentDepthFromRoot(commentId: string): Promise<number> {
         if (seen.has(curId)) return -1;
         seen.add(curId);
         const row: { parentId: string | null } | null = await prisma.hubComment.findFirst({
-            where: { id: curId, deletedAt: null },
+            where: { id: curId },
             select: { parentId: true },
         });
         if (!row) return -1;
@@ -189,7 +189,7 @@ function mapCategory(c: HubCategory | null): HubCategoryDto | null {
 async function getActiveHubCategoryById(id: string): Promise<HubCategory | null> {
     const prisma = getPrisma();
     return prisma.hubCategory.findFirst({
-        where: { id, deletedAt: null },
+        where: { id },
     });
 }
 
@@ -198,7 +198,6 @@ async function getActiveHubCategoryBySlug(slug: string, excludeId?: string): Pro
     return prisma.hubCategory.findFirst({
         where: {
             slug,
-            deletedAt: null,
             ...(excludeId ? { NOT: { id: excludeId } } : {}),
         },
     });
@@ -228,7 +227,6 @@ function mapPostListItem(p: PostRowList): HubPostListItemDto {
 export async function listHubCategories(): Promise<HubCategoryDto[]> {
     const prisma = getPrisma();
     const rows = await prisma.hubCategory.findMany({
-        where: { deletedAt: null },
         orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
     });
     return rows.map((c) => mapCategory(c)!);
@@ -301,26 +299,22 @@ export async function adminUpdateHubCategory(
     return mapCategory(category)!;
 }
 
-export async function adminSoftDeleteHubCategory(categoryId: string): Promise<void> {
+export async function adminDeleteHubCategory(categoryId: string): Promise<void> {
     const prisma = getPrisma();
     const existing = await getActiveHubCategoryById(categoryId);
     if (!existing) {
         throw new HttpError(HttpStatus.NOT_FOUND, "Category not found", ErrorCode.NOT_FOUND);
     }
 
-    const activePostCount = await prisma.hubPost.count({
-        where: {
-            categoryId,
-            deletedAt: null,
-        },
+    const postCount = await prisma.hubPost.count({
+        where: { categoryId },
     });
-    if (activePostCount > 0) {
+    if (postCount > 0) {
         throw new HttpError(HttpStatus.CONFLICT, "Category is in use by active posts", ErrorCode.VALIDATION_ERROR);
     }
 
-    await prisma.hubCategory.update({
+    await prisma.hubCategory.delete({
         where: { id: categoryId },
-        data: { deletedAt: new Date() },
     });
 }
 
@@ -337,7 +331,7 @@ export async function listPublishedHubPosts(params: {
     let categoryId: string | undefined;
     if (params.categorySlug?.trim()) {
         const cat = await prisma.hubCategory.findFirst({
-            where: { slug: params.categorySlug.trim(), deletedAt: null },
+            where: { slug: params.categorySlug.trim() },
         });
         if (!cat) {
             return { items: [], total: 0 };
@@ -346,7 +340,6 @@ export async function listPublishedHubPosts(params: {
     }
 
     const where: import("../../generated/prisma/client.js").Prisma.HubPostWhereInput = {
-        deletedAt: null,
         status: HubPostStatus.PUBLISHED,
         ...(categoryId ? { categoryId } : {}),
         ...(params.authorId ? { authorId: params.authorId } : {}),
@@ -385,7 +378,6 @@ export async function getPublishedHubPostBySlug(slug: string): Promise<HubPostDe
     const post = await prisma.hubPost.findFirst({
         where: {
             slug,
-            deletedAt: null,
             status: HubPostStatus.PUBLISHED,
         },
         include: {
@@ -394,7 +386,6 @@ export async function getPublishedHubPostBySlug(slug: string): Promise<HubPostDe
             hubFeedback: true,
             _count: hubActiveCommentsCount,
             comments: {
-                where: { deletedAt: null },
                 orderBy: { createdAt: "asc" },
                 include: hubCommentIncludeAuthorAndLikes,
             },
@@ -419,7 +410,6 @@ export async function getMyHubPostDetail(userId: string, postId: string): Promis
         where: {
             id: postId,
             authorId: userId,
-            deletedAt: null,
         },
         include: {
             category: true,
@@ -427,7 +417,6 @@ export async function getMyHubPostDetail(userId: string, postId: string): Promis
             hubFeedback: true,
             _count: hubActiveCommentsCount,
             comments: {
-                where: { deletedAt: null },
                 orderBy: { createdAt: "asc" },
                 include: hubCommentIncludeAuthorAndLikes,
             },
@@ -453,7 +442,6 @@ export async function listMyHubPosts(params: {
 }): Promise<{ items: HubPostListItemDto[]; total: number }> {
     const prisma = getPrisma();
     const where = {
-        deletedAt: null,
         authorId: params.userId,
     };
     const [total, rows] = await prisma.$transaction([
@@ -488,7 +476,7 @@ export async function createHubPostForUser(
     const prisma = getPrisma();
     if (input.categoryId) {
         const cat = await prisma.hubCategory.findFirst({
-            where: { id: input.categoryId, deletedAt: null },
+            where: { id: input.categoryId },
         });
         if (!cat) {
             throw new HttpError(HttpStatus.BAD_REQUEST, "Category not found", ErrorCode.VALIDATION_ERROR);
@@ -532,14 +520,14 @@ export async function updateMyHubPost(
 ): Promise<HubPostListItemDto> {
     const prisma = getPrisma();
     const existing = await prisma.hubPost.findFirst({
-        where: { id: postId, deletedAt: null },
+        where: { id: postId },
     });
     if (!existing || existing.authorId !== userId) {
         throw new HttpError(HttpStatus.NOT_FOUND, "Post not found", ErrorCode.NOT_FOUND);
     }
     if (input.categoryId !== undefined && input.categoryId !== null) {
         const cat = await prisma.hubCategory.findFirst({
-            where: { id: input.categoryId, deletedAt: null },
+            where: { id: input.categoryId },
         });
         if (!cat) {
             throw new HttpError(HttpStatus.BAD_REQUEST, "Category not found", ErrorCode.VALIDATION_ERROR);
@@ -567,17 +555,16 @@ export async function updateMyHubPost(
     return mapPostListItem(post as PostRowList);
 }
 
-export async function softDeleteMyHubPost(userId: string, postId: string): Promise<void> {
+export async function deleteMyHubPost(userId: string, postId: string): Promise<void> {
     const prisma = getPrisma();
     const existing = await prisma.hubPost.findFirst({
-        where: { id: postId, deletedAt: null },
+        where: { id: postId },
     });
     if (!existing || existing.authorId !== userId) {
         throw new HttpError(HttpStatus.NOT_FOUND, "Post not found", ErrorCode.NOT_FOUND);
     }
-    await prisma.hubPost.update({
+    await prisma.hubPost.delete({
         where: { id: postId },
-        data: { deletedAt: new Date() },
     });
 }
 
@@ -595,7 +582,7 @@ export async function adminListHubPosts(params: {
     let categoryId: string | undefined;
     if (params.categorySlug?.trim()) {
         const cat = await prisma.hubCategory.findFirst({
-            where: { slug: params.categorySlug.trim(), deletedAt: null },
+            where: { slug: params.categorySlug.trim() },
         });
         categoryId = cat?.id;
         if (params.categorySlug.trim() && !cat) {
@@ -604,7 +591,6 @@ export async function adminListHubPosts(params: {
     }
 
     const where: import("../../generated/prisma/client.js").Prisma.HubPostWhereInput = {
-        deletedAt: null,
         ...(categoryId ? { categoryId } : {}),
         ...(params.status ? { status: params.status } : {}),
         ...(params.authorId ? { authorId: params.authorId } : {}),
@@ -648,14 +634,14 @@ export async function adminCreateHubPost(input: {
 }): Promise<HubPostListItemDto> {
     const prisma = getPrisma();
     const user = await prisma.user.findFirst({
-        where: { id: input.authorId, deletedAt: null },
+        where: { id: input.authorId },
     });
     if (!user) {
         throw new HttpError(HttpStatus.BAD_REQUEST, "Author not found", ErrorCode.VALIDATION_ERROR);
     }
     if (input.categoryId) {
         const cat = await prisma.hubCategory.findFirst({
-            where: { id: input.categoryId, deletedAt: null },
+            where: { id: input.categoryId },
         });
         if (!cat) {
             throw new HttpError(HttpStatus.BAD_REQUEST, "Category not found", ErrorCode.VALIDATION_ERROR);
@@ -711,14 +697,14 @@ export async function adminUpdateHubPost(
 ): Promise<HubPostListItemDto> {
     const prisma = getPrisma();
     const existing = await prisma.hubPost.findFirst({
-        where: { id: postId, deletedAt: null },
+        where: { id: postId },
     });
     if (!existing) {
         throw new HttpError(HttpStatus.NOT_FOUND, "Post not found", ErrorCode.NOT_FOUND);
     }
     if (input.authorId !== undefined) {
         const user = await prisma.user.findFirst({
-            where: { id: input.authorId, deletedAt: null },
+            where: { id: input.authorId },
         });
         if (!user) {
             throw new HttpError(HttpStatus.BAD_REQUEST, "Author not found", ErrorCode.VALIDATION_ERROR);
@@ -726,7 +712,7 @@ export async function adminUpdateHubPost(
     }
     if (input.categoryId !== undefined && input.categoryId !== null) {
         const cat = await prisma.hubCategory.findFirst({
-            where: { id: input.categoryId, deletedAt: null },
+            where: { id: input.categoryId },
         });
         if (!cat) {
             throw new HttpError(HttpStatus.BAD_REQUEST, "Category not found", ErrorCode.VALIDATION_ERROR);
@@ -770,14 +756,13 @@ export async function adminUpdateHubPost(
 export async function getAdminHubPostDetail(postId: string): Promise<HubPostDetailDto | null> {
     const prisma = getPrisma();
     const post = await prisma.hubPost.findFirst({
-        where: { id: postId, deletedAt: null },
+        where: { id: postId },
         include: {
             category: true,
             author: { include: { profile: true } },
             hubFeedback: true,
             _count: hubActiveCommentsCount,
             comments: {
-                where: { deletedAt: null },
                 orderBy: { createdAt: "asc" },
                 include: hubCommentIncludeAuthorAndLikes,
             },
@@ -803,7 +788,6 @@ export async function createHubComment(
     const post = await prisma.hubPost.findFirst({
         where: {
             id: postId,
-            deletedAt: null,
             status: HubPostStatus.PUBLISHED,
         },
         select: { id: true },
@@ -817,7 +801,7 @@ export async function createHubComment(
 
     if (parentId) {
         const parent = await prisma.hubComment.findFirst({
-            where: { id: parentId, postId, deletedAt: null },
+            where: { id: parentId, postId },
             select: { id: true },
         });
         if (!parent) {
@@ -849,7 +833,7 @@ export async function updateHubComment(
 ): Promise<HubCommentDto> {
     const prisma = getPrisma();
     const existing = await prisma.hubComment.findFirst({
-        where: { id: commentId, postId, deletedAt: null },
+        where: { id: commentId, postId },
         include: { author: { include: { profile: true } } },
     });
     if (!existing) {
@@ -867,10 +851,10 @@ export async function updateHubComment(
     return mapCommentRowToDto(updated as HubCommentAuthorRow);
 }
 
-export async function softDeleteHubComment(userId: string, postId: string, commentId: string): Promise<void> {
+export async function deleteHubComment(userId: string, postId: string, commentId: string): Promise<void> {
     const prisma = getPrisma();
     const existing = await prisma.hubComment.findFirst({
-        where: { id: commentId, postId, deletedAt: null },
+        where: { id: commentId, postId },
         select: { id: true, authorId: true },
     });
     if (!existing) {
@@ -879,22 +863,20 @@ export async function softDeleteHubComment(userId: string, postId: string, comme
     if (existing.authorId !== userId) {
         throw new HttpError(HttpStatus.FORBIDDEN, ERROR_MESSAGES[ErrorCode.FORBIDDEN], ErrorCode.FORBIDDEN);
     }
-    await prisma.hubComment.update({
+    await prisma.hubComment.delete({
         where: { id: commentId },
-        data: { deletedAt: new Date() },
     });
 }
 
-export async function adminSoftDeleteHubPost(postId: string): Promise<void> {
+export async function adminDeleteHubPost(postId: string): Promise<void> {
     const prisma = getPrisma();
     const existing = await prisma.hubPost.findFirst({
-        where: { id: postId, deletedAt: null },
+        where: { id: postId },
     });
     if (!existing) {
         throw new HttpError(HttpStatus.NOT_FOUND, "Post not found", ErrorCode.NOT_FOUND);
     }
-    await prisma.hubPost.update({
+    await prisma.hubPost.delete({
         where: { id: postId },
-        data: { deletedAt: new Date() },
     });
 }

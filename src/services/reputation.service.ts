@@ -58,7 +58,7 @@ export async function applyReputationDelta(input: {
 }): Promise<{ score: number }> {
     const prisma = getPrisma();
     const user = await prisma.user.findFirst({
-        where: { id: input.userId, deletedAt: null },
+        where: { id: input.userId },
         select: { id: true },
     });
     if (!user) {
@@ -150,12 +150,6 @@ export async function listPublicContributorsLeaderboard(params: {
     const prisma = getPrisma();
     const where: Prisma.UserContributionScoreWhereInput = {
         score: { gt: 0 },
-        user: {
-            deletedAt: null,
-            profile: {
-                is: { deletedAt: null },
-            },
-        },
     };
 
     const rows = await prisma.userContributionScore.findMany({

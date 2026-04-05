@@ -1,18 +1,24 @@
+import { ErrorCode } from "../constants/errorCodes.js";
 import { HttpStatus } from "../constants/httpStatus.js";
 import blogScheduleService from "../services/blog-schedule.service.js";
 
 class BlogScheduleController {
+    async getSchedule(_req: any, res: any) {
+        const schedule = await blogScheduleService.getSchedule();
+        return res.success({ schedule });
+    }
+
     async toggleStatus(req: any, res: any) {
         const [error, result] = await blogScheduleService.toggleSchedule(req.params.id);
 
         if (error) {
             res.error({
+                code: ErrorCode.NOT_FOUND,
                 message: error,
-                status: HttpStatus.NOT_FOUND,
+                statusCode: HttpStatus.NOT_FOUND,
             });
+            return;
         }
-
-        console.log(result);
 
         return res.success(result);
     }

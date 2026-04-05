@@ -28,7 +28,7 @@ class ProfileService {
             where: { username },
             include: { user: true },
         });
-        if (!profile || profile.deletedAt || profile.user.deletedAt) return null;
+        if (!profile) return null;
 
         return {
             userId: profile.userId,
@@ -43,7 +43,7 @@ class ProfileService {
     async getUserMe(userId: string): Promise<PublicUser | null> {
         const prisma = getPrisma();
         const user = await prisma.user.findFirst({
-            where: { id: userId, deletedAt: null },
+            where: { id: userId },
             include: { profile: true },
         });
         if (!user) return null;
@@ -56,7 +56,7 @@ class ProfileService {
         let profile = await prisma.profile.findUnique({ where: { userId } });
         if (!profile) {
             const user = await prisma.user.findUnique({ where: { id: userId } });
-            if (!user || user.deletedAt) {
+            if (!user) {
                 throw new HttpError(
                     HttpStatus.NOT_FOUND,
                     ERROR_MESSAGES[ErrorCode.NOT_FOUND],

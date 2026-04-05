@@ -16,7 +16,6 @@ export async function toggleHubCommentLike(input: {
         where: {
             id: input.commentId,
             postId: input.postId,
-            deletedAt: null,
         },
         select: { id: true, authorId: true },
     });
@@ -90,7 +89,6 @@ export async function toggleBlogCommentLike(input: {
         where: {
             id: input.commentId,
             blogPostId: input.postId,
-            deletedAt: null,
         },
         select: { id: true, authorId: true },
     });

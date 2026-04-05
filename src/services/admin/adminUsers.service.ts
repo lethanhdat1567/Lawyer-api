@@ -8,14 +8,14 @@ import { getPrisma } from "../../lib/prisma.js";
 class AdminUsersService {
     async listUsers(params: { page: number; pageSize: number; q?: string; role?: UserRole }) {
         const prisma = getPrisma();
-        const where: Prisma.UserWhereInput = { deletedAt: null };
+        const where: Prisma.UserWhereInput = {};
         if (params.role) where.role = params.role;
         if (params.q?.trim()) {
             const q = params.q.trim();
             where.OR = [
                 { email: { contains: q } },
-                { profile: { is: { username: { contains: q }, deletedAt: null } } },
-                { profile: { is: { displayName: { contains: q }, deletedAt: null } } },
+                { profile: { is: { username: { contains: q } } } },
+                { profile: { is: { displayName: { contains: q } } } },
             ];
         }
 
@@ -57,7 +57,7 @@ class AdminUsersService {
     async patchUserRole(actorId: string, targetUserId: string, newRole: UserRole) {
         const prisma = getPrisma();
         const target = await prisma.user.findFirst({
-            where: { id: targetUserId, deletedAt: null },
+            where: { id: targetUserId },
             select: { id: true, role: true },
         });
         if (!target) {
@@ -73,7 +73,7 @@ class AdminUsersService {
                 );
             }
             const adminCount = await prisma.user.count({
-                where: { role: UserRole.ADMIN, deletedAt: null },
+                where: { role: UserRole.ADMIN },
             });
             if (adminCount <= 1) {
                 throw new HttpError(

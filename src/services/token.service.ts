@@ -195,7 +195,7 @@ export async function rotateRefreshToken(
         );
     }
     const user = await prisma.user.findFirst({
-        where: { id: payload.sub, deletedAt: null },
+        where: { id: payload.sub },
     });
     if (!user) {
         throw new HttpError(

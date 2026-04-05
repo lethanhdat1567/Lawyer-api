@@ -21,9 +21,11 @@ connectPrisma();
                 switch (type) {
                     case VERIFY_EMAIL_QUEUE: {
                         await sendEmailVerification(queueJob?.payload?.email, queueJob?.payload?.rawToken);
+                        break;
                     }
                     case FORGOT_PASSWORD_QUEUE: {
                         await sendPasswordResetCode(queueJob?.payload?.email, queueJob?.payload?.code);
+                        break;
                     }
                     case AI_FEEDBACK_QUEUE: {
                         const exitPublicHub = await hubFeedbackService.findPublicHubById(queueJob?.payload?.hubId);
@@ -31,6 +33,7 @@ connectPrisma();
                         if (exitPublicHub) {
                             await hubFeedbackService.createFeedback(exitPublicHub?.id as string, exitPublicHub?.body);
                         }
+                        break;
                     }
                 }
 

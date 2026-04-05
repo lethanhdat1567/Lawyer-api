@@ -1,10 +1,10 @@
 import {
     createHubComment,
     createHubPostForUser,
+    deleteHubComment,
+    deleteMyHubPost,
     getMyHubPostDetail,
     listMyHubPosts,
-    softDeleteHubComment,
-    softDeleteMyHubPost,
     updateHubComment,
     updateMyHubPost,
 } from "../hub.service.js";
@@ -14,10 +14,10 @@ class HubMeService {
     listPosts = listMyHubPosts;
     createPost = createHubPostForUser;
     updatePost = updateMyHubPost;
-    deletePost = softDeleteMyHubPost;
+    deletePost = deleteMyHubPost;
     createComment = createHubComment;
     updateComment = updateHubComment;
-    deleteComment = softDeleteHubComment;
+    deleteComment = deleteHubComment;
 }
 
 export default new HubMeService();

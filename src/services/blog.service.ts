@@ -9,6 +9,7 @@ import { getPrisma } from "../lib/prisma.js";
 import { applyReputationDelta, awardPublishedBlogScore, revokePublishedBlogScore } from "./reputation.service.js";
 import { slugifyTitle } from "./hub.service.js";
 import aiService from "./ai.service.js";
+import aiConfigService from "./ai-config.service.js";
 
 const EXCERPT_LEN = 180;
 const BLOG_COMMENT_MAX_DEPTH = 4;
@@ -85,7 +86,7 @@ async function blogCommentDepthFromRoot(commentId: string): Promise<number> {
         if (seen.has(curId)) return -1;
         seen.add(curId);
         const row: { parentId: string | null } | null = await prisma.blogComment.findFirst({
-            where: { id: curId, deletedAt: null },
+            where: { id: curId },
             select: { parentId: true },
         });
         if (!row) return -1;
@@ -140,19 +141,18 @@ function mapTag(tag: Tag): BlogTagDto {
     };
 }
 
-async function getActiveBlogTagById(tagId: string): Promise<Tag | null> {
+async function getBlogTagById(tagId: string): Promise<Tag | null> {
     const prisma = getPrisma();
     return prisma.tag.findFirst({
-        where: { id: tagId, deletedAt: null },
+        where: { id: tagId },
     });
 }
 
-async function getActiveBlogTagBySlug(slug: string, excludeId?: string): Promise<Tag | null> {
+async function getBlogTagBySlug(slug: string, excludeId?: string): Promise<Tag | null> {
     const prisma = getPrisma();
     return prisma.tag.findFirst({
         where: {
             slug,
-            deletedAt: null,
             ...(excludeId ? { NOT: { id: excludeId } } : {}),
         },
     });
@@ -241,7 +241,7 @@ const blogPostIncludeListWithCounts = {
     ...blogPostIncludeList,
     _count: {
         select: {
-            comments: { where: { deletedAt: null } },
+            comments: true,
             likes: true,
         },
     },
@@ -250,7 +250,6 @@ const blogPostIncludeListWithCounts = {
 const blogPostIncludeDetail = {
     ...blogPostIncludeList,
     comments: {
-        where: { deletedAt: null },
         orderBy: { createdAt: "asc" as const },
         include: {
             author: { include: { profile: true } },
@@ -259,7 +258,7 @@ const blogPostIncludeDetail = {
     },
     _count: {
         select: {
-            comments: { where: { deletedAt: null } },
+            comments: true,
             likes: true,
             savedBy: true,
         },
@@ -271,7 +270,7 @@ async function assertTagIdsExist(tagIds: string[]): Promise<void> {
     const unique = [...new Set(tagIds)];
     const prisma = getPrisma();
     const n = await prisma.tag.count({
-        where: { id: { in: unique }, deletedAt: null },
+        where: { id: { in: unique } },
     });
     if (n !== unique.length) {
         throw new HttpError(HttpStatus.BAD_REQUEST, "One or more tags not found", ErrorCode.VALIDATION_ERROR);
@@ -306,7 +305,6 @@ async function getBlogPostLikeCount(postId: string): Promise<number> {
 export async function listPublicBlogTags(): Promise<BlogTagDto[]> {
     const prisma = getPrisma();
     const rows = await prisma.tag.findMany({
-        where: { deletedAt: null },
         orderBy: [{ name: "asc" }],
     });
     return rows.map(mapTag);
@@ -318,7 +316,7 @@ export async function adminCreateBlogTag(input: { name: string; slug?: string })
     const requestedSlug = input.slug?.trim();
     const slug = requestedSlug || slugifyTitle(name);
 
-    const existing = await getActiveBlogTagBySlug(slug);
+    const existing = await getBlogTagBySlug(slug);
     if (existing) {
         throw new HttpError(HttpStatus.CONFLICT, "Tag slug already exists", ErrorCode.VALIDATION_ERROR);
     }
@@ -341,7 +339,7 @@ export async function adminUpdateBlogTag(
     },
 ): Promise<BlogTagDto> {
     const prisma = getPrisma();
-    const existing = await getActiveBlogTagById(tagId);
+    const existing = await getBlogTagById(tagId);
     if (!existing) {
         throw new HttpError(HttpStatus.NOT_FOUND, "Tag not found", ErrorCode.NOT_FOUND);
     }
@@ -349,7 +347,7 @@ export async function adminUpdateBlogTag(
     if (input.slug?.trim()) {
         const requestedSlug = input.slug.trim();
         if (requestedSlug !== existing.slug) {
-            const slugTaken = await getActiveBlogTagBySlug(requestedSlug, tagId);
+            const slugTaken = await getBlogTagBySlug(requestedSlug, tagId);
             if (slugTaken) {
                 throw new HttpError(HttpStatus.CONFLICT, "Tag slug already exists", ErrorCode.VALIDATION_ERROR);
             }
@@ -367,28 +365,22 @@ export async function adminUpdateBlogTag(
     return mapTag(tag);
 }
 
-export async function adminSoftDeleteBlogTag(tagId: string): Promise<void> {
+export async function adminDeleteBlogTag(tagId: string): Promise<void> {
     const prisma = getPrisma();
-    const existing = await getActiveBlogTagById(tagId);
+    const existing = await getBlogTagById(tagId);
     if (!existing) {
         throw new HttpError(HttpStatus.NOT_FOUND, "Tag not found", ErrorCode.NOT_FOUND);
     }
 
-    const activePostCount = await prisma.blogPostTag.count({
-        where: {
-            tagId,
-            blogPost: {
-                deletedAt: null,
-            },
-        },
+    const postCount = await prisma.blogPostTag.count({
+        where: { tagId },
     });
-    if (activePostCount > 0) {
+    if (postCount > 0) {
         throw new HttpError(HttpStatus.CONFLICT, "Tag is in use by active posts", ErrorCode.VALIDATION_ERROR);
     }
 
-    await prisma.tag.update({
+    await prisma.tag.delete({
         where: { id: tagId },
-        data: { deletedAt: new Date() },
     });
 }
 
@@ -406,14 +398,13 @@ export async function listPublishedBlogPosts(params: {
     let tagId: string | undefined;
     if (params.tagSlug?.trim()) {
         const tag = await prisma.tag.findFirst({
-            where: { slug: params.tagSlug.trim(), deletedAt: null },
+            where: { slug: params.tagSlug.trim() },
         });
         if (!tag) return { items: [], total: 0 };
         tagId = tag.id;
     }
 
     const where: import("../../generated/prisma/client.js").Prisma.BlogPostWhereInput = {
-        deletedAt: null,
         status: BlogPostStatus.PUBLISHED,
         ...(params.verifiedOnly ? { isVerified: true } : {}),
         ...(params.authorId ? { authorId: params.authorId } : {}),
@@ -449,7 +440,6 @@ export async function getPublishedBlogPostBySlug(slug: string): Promise<BlogPost
     const post = await prisma.blogPost.findFirst({
         where: {
             slug,
-            deletedAt: null,
             status: BlogPostStatus.PUBLISHED,
         },
         include: blogPostIncludeDetail,
@@ -465,7 +455,6 @@ export async function listMyBlogPosts(params: {
 }): Promise<{ items: BlogPostListItemDto[]; total: number }> {
     const prisma = getPrisma();
     const where = {
-        deletedAt: null,
         authorId: params.userId,
     };
     const [total, rows] = await prisma.$transaction([
@@ -487,7 +476,7 @@ export async function listMyBlogPosts(params: {
 export async function getMyBlogPostById(userId: string, postId: string): Promise<BlogPostDetailDto | null> {
     const prisma = getPrisma();
     const post = await prisma.blogPost.findFirst({
-        where: { id: postId, authorId: userId, deletedAt: null },
+        where: { id: postId, authorId: userId },
         include: blogPostIncludeDetail,
     });
     if (!post) return null;
@@ -582,7 +571,7 @@ export async function updateMyBlogPost(
 ): Promise<BlogPostListItemDto> {
     const prisma = getPrisma();
     const existing = await prisma.blogPost.findFirst({
-        where: { id: postId, deletedAt: null },
+        where: { id: postId },
     });
     if (!existing || existing.authorId !== userId) {
         throw new HttpError(HttpStatus.NOT_FOUND, "Post not found", ErrorCode.NOT_FOUND);
@@ -650,10 +639,10 @@ export async function updateMyBlogPost(
     return mapPostListItem(reloaded as BlogPostRowList);
 }
 
-export async function softDeleteMyBlogPost(userId: string, postId: string): Promise<void> {
+export async function deleteMyBlogPost(userId: string, postId: string): Promise<void> {
     const prisma = getPrisma();
     const existing = await prisma.blogPost.findFirst({
-        where: { id: postId, deletedAt: null },
+        where: { id: postId },
     });
     if (!existing || existing.authorId !== userId) {
         throw new HttpError(HttpStatus.NOT_FOUND, "Post not found", ErrorCode.NOT_FOUND);
@@ -662,9 +651,8 @@ export async function softDeleteMyBlogPost(userId: string, postId: string): Prom
         const likeCount = await getBlogPostLikeCount(postId);
         await revokePublishedBlogScore(existing.authorId, postId, likeCount);
     }
-    await prisma.blogPost.update({
+    await prisma.blogPost.delete({
         where: { id: postId },
-        data: { deletedAt: new Date() },
     });
 }
 
@@ -683,7 +671,7 @@ export async function adminListBlogPosts(params: {
     let tagId: string | undefined;
     if (params.tagSlug?.trim()) {
         const tag = await prisma.tag.findFirst({
-            where: { slug: params.tagSlug.trim(), deletedAt: null },
+            where: { slug: params.tagSlug.trim() },
         });
         tagId = tag?.id;
         if (params.tagSlug.trim() && !tag) {
@@ -692,7 +680,6 @@ export async function adminListBlogPosts(params: {
     }
 
     const where: import("../../generated/prisma/client.js").Prisma.BlogPostWhereInput = {
-        deletedAt: null,
         ...(params.status ? { status: params.status } : {}),
         ...(params.authorId ? { authorId: params.authorId } : {}),
         ...(params.verifiedOnly ? { isVerified: true } : {}),
@@ -731,7 +718,7 @@ export async function adminListBlogPosts(params: {
 export async function getAdminBlogPostById(postId: string): Promise<BlogPostDetailDto | null> {
     const prisma = getPrisma();
     const post = await prisma.blogPost.findFirst({
-        where: { id: postId, deletedAt: null },
+        where: { id: postId },
         include: blogPostIncludeDetail,
     });
     if (!post) return null;
@@ -750,7 +737,7 @@ export async function adminCreateBlogPost(input: {
 }): Promise<BlogPostListItemDto> {
     const prisma = getPrisma();
     const author = await prisma.user.findFirst({
-        where: { id: input.authorId, deletedAt: null },
+        where: { id: input.authorId },
     });
     if (!author) {
         throw new HttpError(HttpStatus.BAD_REQUEST, "Author not found", ErrorCode.VALIDATION_ERROR);
@@ -828,7 +815,7 @@ export async function adminUpdateBlogPost(
 ): Promise<BlogPostListItemDto> {
     const prisma = getPrisma();
     const existing = await prisma.blogPost.findFirst({
-        where: { id: postId, deletedAt: null },
+        where: { id: postId },
     });
     if (!existing) {
         throw new HttpError(HttpStatus.NOT_FOUND, "Post not found", ErrorCode.NOT_FOUND);
@@ -836,7 +823,7 @@ export async function adminUpdateBlogPost(
 
     if (input.authorId !== undefined) {
         const u = await prisma.user.findFirst({
-            where: { id: input.authorId, deletedAt: null },
+            where: { id: input.authorId },
         });
         if (!u) {
             throw new HttpError(HttpStatus.BAD_REQUEST, "Author not found", ErrorCode.VALIDATION_ERROR);
@@ -924,7 +911,7 @@ export async function adminUpdateBlogPostVerification(
 ): Promise<BlogPostDetailDto> {
     const prisma = getPrisma();
     const existing = await prisma.blogPost.findFirst({
-        where: { id: postId, deletedAt: null },
+        where: { id: postId },
     });
     if (!existing) {
         throw new HttpError(HttpStatus.NOT_FOUND, "Post not found", ErrorCode.NOT_FOUND);
@@ -960,10 +947,10 @@ export async function adminUpdateBlogPostVerification(
     return mapPostDetail(updated as BlogPostRowDetail);
 }
 
-export async function adminSoftDeleteBlogPost(postId: string): Promise<void> {
+export async function adminDeleteBlogPost(postId: string): Promise<void> {
     const prisma = getPrisma();
     const existing = await prisma.blogPost.findFirst({
-        where: { id: postId, deletedAt: null },
+        where: { id: postId },
     });
     if (!existing) {
         throw new HttpError(HttpStatus.NOT_FOUND, "Post not found", ErrorCode.NOT_FOUND);
@@ -972,9 +959,8 @@ export async function adminSoftDeleteBlogPost(postId: string): Promise<void> {
         const likeCount = await getBlogPostLikeCount(postId);
         await revokePublishedBlogScore(existing.authorId, postId, likeCount);
     }
-    await prisma.blogPost.update({
+    await prisma.blogPost.delete({
         where: { id: postId },
-        data: { deletedAt: new Date() },
     });
 }
 
@@ -983,7 +969,6 @@ async function assertPublishedBlogPostForComments(postId: string): Promise<void>
     const post = await prisma.blogPost.findFirst({
         where: {
             id: postId,
-            deletedAt: null,
             status: BlogPostStatus.PUBLISHED,
         },
         select: { id: true },
@@ -1006,7 +991,7 @@ export async function createBlogComment(
 
     if (parentId) {
         const parent = await prisma.blogComment.findFirst({
-            where: { id: parentId, blogPostId, deletedAt: null },
+            where: { id: parentId, blogPostId },
             select: { id: true },
         });
         if (!parent) {
@@ -1041,7 +1026,7 @@ export async function updateBlogComment(
 ): Promise<BlogCommentDto> {
     const prisma = getPrisma();
     const existing = await prisma.blogComment.findFirst({
-        where: { id: commentId, blogPostId, deletedAt: null },
+        where: { id: commentId, blogPostId },
         include: { author: { include: { profile: true } } },
     });
     if (!existing) {
@@ -1062,10 +1047,10 @@ export async function updateBlogComment(
     return mapBlogCommentRowToDto(updated as BlogCommentAuthorRow);
 }
 
-export async function softDeleteBlogComment(userId: string, blogPostId: string, commentId: string): Promise<void> {
+export async function deleteBlogComment(userId: string, blogPostId: string, commentId: string): Promise<void> {
     const prisma = getPrisma();
     const existing = await prisma.blogComment.findFirst({
-        where: { id: commentId, blogPostId, deletedAt: null },
+        where: { id: commentId, blogPostId },
         select: { id: true, authorId: true },
     });
     if (!existing) {
@@ -1074,9 +1059,8 @@ export async function softDeleteBlogComment(userId: string, blogPostId: string, 
     if (existing.authorId !== userId) {
         throw new HttpError(HttpStatus.FORBIDDEN, ERROR_MESSAGES[ErrorCode.FORBIDDEN], ErrorCode.FORBIDDEN);
     }
-    await prisma.blogComment.update({
+    await prisma.blogComment.delete({
         where: { id: commentId },
-        data: { deletedAt: new Date() },
     });
 }
 
@@ -1089,7 +1073,6 @@ export async function toggleBlogPostLike(
     const post = await prisma.blogPost.findFirst({
         where: {
             id: blogPostId,
-            deletedAt: null,
             status: BlogPostStatus.PUBLISHED,
         },
         select: { id: true, authorId: true },
@@ -1199,7 +1182,6 @@ export async function getBlogPostsEngagementBatch(
     const published = await prisma.blogPost.findMany({
         where: {
             id: { in: unique },
-            deletedAt: null,
             status: BlogPostStatus.PUBLISHED,
         },
         select: { id: true },
@@ -1236,7 +1218,6 @@ export async function listMySavedBlogPosts(params: {
     const where = {
         userId: params.userId,
         blogPost: {
-            deletedAt: null,
             status: BlogPostStatus.PUBLISHED,
         },
     };
@@ -1264,93 +1245,115 @@ export async function listMySavedBlogPosts(params: {
 export async function createBlogByAI() {
     const prisma = getPrisma();
 
-    // 1. Lấy thông tin cơ bản
-    const user = await prisma.user.findFirst({ where: { role: "ADMIN" } });
-    const idea = await prisma.blogIdea.findFirst({ where: { status: "PENDING" } });
-
-    if (!idea || !user) return "No pending idea or admin found";
-
-    // 2. Lấy Tags và Slugs hiện có để tránh trùng
-    const tags = await prisma.tag.findMany({ select: { name: true } });
-
-    // Lấy 100 slugs bài viết gần nhất
-    const existingPosts = await prisma.blogPost.findMany({
-        select: { slug: true },
-        orderBy: { createdAt: "desc" },
+    const processingIdea = await prisma.blogIdea.findFirst({
+        where: { status: "PROCESSING" },
+        select: { id: true },
     });
-    const existingSlugs = existingPosts.map((p) => p.slug).join(", ");
+    if (processingIdea) return "An idea is already being processed";
 
-    const prompt = `
-        Nhiệm vụ: Viết bài blog luật chuyên sâu và đề xuất thẻ (tags).
+    // 1. Tìm ứng viên PENDING
+    const candidate = await prisma.blogIdea.findFirst({
+        where: { status: "PENDING" },
+        orderBy: { createdAt: "asc" },
+        select: { id: true },
+    });
+
+    if (!candidate) return "No pending idea found";
+
+    let idea;
+    try {
+        idea = await prisma.blogIdea.update({
+            where: {
+                id: candidate.id,
+                status: "PENDING",
+            },
+            data: { status: "PROCESSING" },
+        });
+    } catch (error) {
+        return "Idea is already being processed by another instance";
+    }
+
+    const user = await prisma.user.findFirst({
+        where: {
+            role: { in: ["AI_BOT", "ADMIN"] },
+        },
+        orderBy: {
+            role: "asc",
+        },
+    });
+    if (!user) {
+        // Rollback trạng thái nếu không tìm thấy Admin
+        await prisma.blogIdea.update({ where: { id: idea.id }, data: { status: "PENDING" } });
+        return "Admin found error";
+    }
+
+    try {
+        // 3. Chuẩn bị dữ liệu cho AI
+        const tagsFromDb = await prisma.tag.findMany({ select: { name: true } });
+        const existingPosts = await prisma.blogPost.findMany({
+            select: { slug: true },
+            orderBy: { createdAt: "desc" },
+            take: 100,
+        });
+        const existingSlugs = existingPosts.map((p) => p.slug).join(", ");
+
+        const blogPrompt = await aiConfigService.getPromptByType("blog");
+
+        const prompt = `
 
         THÔNG TIN ĐẦU VÀO:
         - Ý tưởng: ${idea.name}
         - Mô tả: ${idea.description}
-        - Danh sách Tags hiện có: ${tags.map((t) => t.name).join(", ")}
+        - Danh sách Tags hệ thống (ƯU TIÊN DÙNG): [${tagsFromDb.map((t) => t.name).join(", ")}]
 
-        DANH SÁCH SLUGS ĐÃ TỒN TẠI (TUYỆT ĐỐI KHÔNG DÙNG LẠI):
+        DANH SÁCH SLUGS ĐÃ TỒN TẠI (KHÔNG DÙNG LẠI):
         [${existingSlugs}]
 
-        YÊU CẦU NỘI DUNG:
-        1. Ngôn ngữ: Tiếng Việt, phong cách luật sư chuyên nghiệp.
-        2. Định dạng Body: Sử dụng thẻ HTML sạch (h2, p, ul, li, strong) cho Tiptap. KHÔNG dùng Markdown.
-        3. Slug: Phải là duy nhất, không trùng với danh sách trên. Nếu tiêu đề tương tự, hãy thêm hậu tố đặc biệt hoặc diễn đạt khác đi.
 
-        YÊU CẦU ĐỊNH DẠNG ĐẦU RA:
-        - Trả về DUY NHẤT một JSON object. KHÔNG bọc trong \`\`\`json.
-        {
-            "blog": { "title": "...", "slug": "...", "excerpt": "...", "body": "..." },
-            "new_tags": [{ "name": "...", "slug": "..." }]
-        }
+        ${blogPrompt}
     `;
 
-    try {
         const AIResult = await aiService.generateGoogleText(prompt);
         const cleanJson = AIResult.trim()
             .replace(/^```json\n?/, "")
             .replace(/\n?```$/, "")
             .trim();
-        const data = JSON.parse(cleanJson);
-        const { blog, new_tags } = data;
 
-        // 3. Tạo Blog (Dùng transaction để đảm bảo tính toàn vẹn dữ liệu)
+        const data = JSON.parse(cleanJson);
+        const { blog, tags } = data;
+        console.log(tags);
+
+        // 4. Thực thi Database Transaction
         return await prisma.$transaction(async (tx) => {
-            // Kiểm tra lại slug một lần nữa ở phía code cho chắc chắn
             const checkSlug = await tx.blogPost.findUnique({ where: { slug: blog.slug } });
             const finalSlug = checkSlug ? `${blog.slug}-${Date.now()}` : blog.slug;
 
-            const blogResult = await tx.blogPost.create({
+            await tx.blogPost.create({
                 data: {
                     title: blog.title,
                     slug: finalSlug,
                     excerpt: blog.excerpt,
                     body: blog.body,
                     authorId: user.id,
+                    thumbnailUrl: blog.thumbnailUrl,
                     status: "PUBLISHED",
+                    isVerified: true,
+                    verifiedAt: new Date(),
+                    verificationNotes: "Verified by AI",
+                    legalCorpusVersion: "1.0.0",
+                    tags: {
+                        create: tags?.map((t: any) => ({
+                            tag: {
+                                connectOrCreate: {
+                                    where: { slug: t.slug },
+                                    create: { name: t.name, slug: t.slug },
+                                },
+                            },
+                        })),
+                    },
                 },
             });
 
-            // 4. Xử lý Tags
-            if (new_tags && new_tags.length > 0) {
-                await tx.tag.createMany({
-                    data: new_tags,
-                    skipDuplicates: true,
-                });
-
-                const tagsFromDb = await tx.tag.findMany({
-                    where: { slug: { in: new_tags.map((t: any) => t.slug) } },
-                    select: { id: true },
-                });
-
-                await tx.blogPostTag.createMany({
-                    data: tagsFromDb.map((t) => ({
-                        blogPostId: blogResult.id,
-                        tagId: t.id,
-                    })),
-                });
-            }
-
-            // 5. Cập nhật Idea
             await tx.blogIdea.update({
                 where: { id: idea.id },
                 data: { status: "COMPLETED" },
@@ -1360,6 +1363,15 @@ export async function createBlogByAI() {
         });
     } catch (error) {
         console.error("Lỗi thực thi CreateBlogByAI:", error);
+
+        // Rollback về PENDING để có thể thử lại
+        if (idea?.id) {
+            await prisma.blogIdea.update({
+                where: { id: idea.id },
+                data: { status: "PENDING" },
+            });
+        }
+
         return "Failed to create blog";
     }
 }

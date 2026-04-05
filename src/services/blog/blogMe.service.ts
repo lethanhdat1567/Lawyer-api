@@ -1,13 +1,13 @@
 import {
     createBlogComment,
     createBlogPostForUser,
+    deleteBlogComment,
+    deleteMyBlogPost,
     getBlogPostEngagement,
     getBlogPostsEngagementBatch,
     getMyBlogPostById,
     listMyBlogPosts,
     listMySavedBlogPosts,
-    softDeleteBlogComment,
-    softDeleteMyBlogPost,
     toggleBlogPostLike,
     toggleSavedBlogPost,
     updateBlogComment,
@@ -21,10 +21,10 @@ class BlogMeService {
     getEngagementBatch = getBlogPostsEngagementBatch;
     createPost = createBlogPostForUser;
     updatePost = updateMyBlogPost;
-    deletePost = softDeleteMyBlogPost;
+    deletePost = deleteMyBlogPost;
     createComment = createBlogComment;
     updateComment = updateBlogComment;
-    deleteComment = softDeleteBlogComment;
+    deleteComment = deleteBlogComment;
     getPostEngagement = getBlogPostEngagement;
     togglePostLike = toggleBlogPostLike;
     togglePostSave = toggleSavedBlogPost;
