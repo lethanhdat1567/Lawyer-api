@@ -18,7 +18,7 @@ new CronJob(
         }
     },
     null,
-    false,
+    true,
     "Asia/Ho_Chi_Minh",
 );
 
@@ -32,12 +32,12 @@ new CronJob(
         }
     },
     null,
-    false,
+    true,
     "Asia/Ho_Chi_Minh",
 );
 
 new CronJob(
-    "*/50 * * * * *",
+    "0 0 5 * * 1",
     async function () {
         try {
             await blogAI();
