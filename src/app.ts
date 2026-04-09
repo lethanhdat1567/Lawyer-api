@@ -12,13 +12,19 @@ import { ensureUploadDir, getUploadStorePath } from "./lib/uploadPaths.js";
 
 export function createApp(): express.Express {
     const app = express();
+    const frontendUrl = process.env.FRONTEND_URL?.trim() || "http://localhost:3000";
     ensureUploadDir();
     app.use(
         helmet({
             crossOriginResourcePolicy: { policy: "cross-origin" },
         }),
     );
-    app.use(cors());
+    app.use(
+        cors({
+            origin: frontendUrl,
+            credentials: true,
+        }),
+    );
     app.use(
         "/upload",
         express.static(path.resolve(getUploadStorePath()), {
