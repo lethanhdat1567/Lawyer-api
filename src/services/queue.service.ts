@@ -1,14 +1,31 @@
 import { QueueStatus } from "../../generated/prisma/enums.js";
+import {
+    AI_EMBEDDING_QUEUE,
+    AI_FEEDBACK_QUEUE,
+    FORGOT_PASSWORD_QUEUE,
+    VERIFY_EMAIL_QUEUE,
+} from "../constants/queue.js";
 import { getPrisma } from "../lib/prisma.js";
 
 class QueueService {
     async findOnePending() {
         const prisma = await getPrisma();
-
-        return prisma.queue.findFirst({
+        const highPriorityJob = await prisma.queue.findFirst({
             where: {
                 status: "pending",
+                type: { in: [VERIFY_EMAIL_QUEUE, FORGOT_PASSWORD_QUEUE, AI_FEEDBACK_QUEUE] },
             },
+            orderBy: { createdAt: "asc" },
+        });
+
+        if (highPriorityJob) return highPriorityJob;
+
+        return await prisma.queue.findFirst({
+            where: {
+                status: "pending",
+                type: AI_EMBEDDING_QUEUE,
+            },
+            orderBy: { createdAt: "asc" },
         });
     }
 

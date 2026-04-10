@@ -1,8 +1,8 @@
 import { getPrisma } from "../lib/prisma.js";
 import aiConfigService from "./ai-config.service.js";
-import aiService from "./ai.service.js";
-import { LocalAiService } from "./localAi.service.js";
 import { getSupabase } from "../lib/supabase.js";
+import { embeddingService } from "./embedding.service.js";
+import aiService from "./ai.service.js";
 
 class HubFeedbackService {
     private supabase = getSupabase();
@@ -21,14 +21,14 @@ class HubFeedbackService {
 
         try {
             // 1. Vectorize nội dung vấn đề của người dùng
-            const queryVector = await LocalAiService.generate(content);
+            const queryVector = await embeddingService.generate(content);
 
             // 2. Truy vấn các điều luật liên quan từ Database (RAG)
             // Lưu ý: Sử dụng cùng logic match_law_articles như hàm ask
             const { data: contextArticles } = await this.supabase.rpc("match_law_articles", {
                 query_embedding: queryVector,
                 match_threshold: 0.5, // Ngưỡng rộng hơn để bao quát vấn đề diễn đàn
-                match_count: 5,
+                match_count: 10,
             });
 
             // 3. Xây dựng chuỗi ngữ cảnh luật pháp
@@ -52,7 +52,7 @@ class HubFeedbackService {
                 Dựa trên dữ liệu pháp luật trên, hãy đưa ra lời khuyên hữu ích, đồng cảm và đúng luật cho người dùng.
             `;
 
-            const result = await aiService.generateGoogleText(fullPrompt);
+            const result = await aiService.generateText(fullPrompt);
 
             // 5. Lưu kết quả vào DB
             await prisma.hubFeedback.create({

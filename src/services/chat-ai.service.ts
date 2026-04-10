@@ -1,10 +1,9 @@
 import { getSupabase } from "../lib/supabase.js";
 import type { StreamTextResult } from "ai";
-import { LawArticle } from "../types/crawl.js";
 import aiService from "./ai.service.js";
 import chatMessageService from "./chat-message.service.js";
-import { LocalAiService } from "./localAi.service.js";
 import aiConfigService from "./ai-config.service.js";
+import { embeddingService } from "./embedding.service.js";
 
 interface AskLawerAiOptions {
     sessionId?: string;
@@ -25,7 +24,7 @@ class ChatAIService {
         if (articleNumber) {
             const { data: exactMatches } = await this.supabase
                 .from("law_articles")
-                .select("*")
+                .select("id, law_title, chapter, article_title, content")
                 // Tìm tiêu đề bắt đầu bằng "Điều X." hoặc "Điều X:" hoặc "Điều X "
                 .or(`article_title.ilike.Điều ${articleNumber}.%,article_title.ilike.Điều ${articleNumber} %`)
                 .limit(2);
@@ -34,7 +33,7 @@ class ChatAIService {
         }
 
         // 3. Bước 2: Tìm kiếm ngữ nghĩa bằng Vector (Bổ sung thêm ngữ cảnh)
-        const queryVector = await LocalAiService.generate(userQuestion);
+        const queryVector = await embeddingService.generate(userQuestion);
         const { data: vectorResults, error } = await this.supabase.rpc("match_law_articles", {
             query_embedding: queryVector,
             match_threshold: 0.5,
@@ -50,7 +49,6 @@ class ChatAIService {
         const existingIds = new Set(contextArticles.map((a) => a.id));
         const uniqueVectorResults = (vectorResults || []).filter((a: any) => !existingIds.has(a.id));
         contextArticles = [...contextArticles, ...uniqueVectorResults].slice(0, 10);
-        console.log("contextArticles", contextArticles);
 
         // 4. Xây dựng contextString sạch sẽ
         const contextString =
@@ -81,17 +79,17 @@ class ChatAIService {
             ${userQuestion}
         `;
 
-        return aiService.generateStreamText(systemPrompt, {
-            onFinish: async (text) => {
-                if (sessionId) {
-                    await chatMessageService.createMessage(sessionId, text, "assistant");
-                }
-            },
+        const result = await aiService.generateStreamText(systemPrompt, "meta/llama-3.1-8b", async (text: string) => {
+            if (sessionId) {
+                await chatMessageService.createMessage(sessionId, text, "assistant");
+            }
         });
+
+        return result;
     }
 
     async getTitle(message: string) {
-        const result = await aiService.generateGoogleText(
+        const result = await aiService.generateText(
             `Tóm tắt câu hỏi sau thành một tiêu đề ngắn gọn (dưới 6 từ): "${message}"`,
         );
 

@@ -41,7 +41,7 @@ class BlogIdeaService {
         const existingNames = existingIdeas.map((i) => i.name).join(", ");
         const tagsFromDb = await prisma.tag.findMany({ select: { name: true } });
 
-        const result = await aiService.generateGoogleText(
+        const result = await aiService.generateText(
             `
             Nhiệm vụ: Tạo danh sách ý tưởng blog luật.
             Chủ đề: ${prompt}

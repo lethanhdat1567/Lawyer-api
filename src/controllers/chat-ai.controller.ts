@@ -51,6 +51,7 @@ class ChatAiController {
                 sessionId,
                 userQuestion: message,
             });
+
             const response = answer.toTextStreamResponse();
 
             res.status(response.status);

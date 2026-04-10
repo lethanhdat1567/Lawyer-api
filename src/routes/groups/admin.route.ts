@@ -8,27 +8,7 @@ import { UserRole } from "../../../generated/prisma/enums.js";
 
 export const adminRoutesRouter = Router();
 
-adminRoutesRouter.use(
-    "/admin/hub/categories",
-    authenticate,
-    requireRole(UserRole.ADMIN),
-    hubCategoryAdminRouter,
-);
-adminRoutesRouter.use(
-    "/admin/hub",
-    authenticate,
-    requireRole(UserRole.ADMIN),
-    hubAdminRouter,
-);
-adminRoutesRouter.use(
-    "/admin/blog",
-    authenticate,
-    requireRole(UserRole.ADMIN),
-    blogAdminRouter,
-);
-adminRoutesRouter.use(
-    "/admin",
-    authenticate,
-    requireRole(UserRole.ADMIN),
-    adminRouter,
-);
+adminRoutesRouter.use("/admin/hub/categories", authenticate, requireRole(UserRole.ADMIN), hubCategoryAdminRouter);
+adminRoutesRouter.use("/admin/hub", authenticate, requireRole(UserRole.ADMIN), hubAdminRouter);
+adminRoutesRouter.use("/admin/blog", authenticate, requireRole(UserRole.ADMIN), blogAdminRouter);
+adminRoutesRouter.use("/admin", authenticate, requireRole(UserRole.ADMIN), adminRouter);

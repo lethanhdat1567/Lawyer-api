@@ -8,8 +8,8 @@ import { HttpError } from "../lib/httpError.js";
 import { getPrisma } from "../lib/prisma.js";
 import { applyReputationDelta, awardPublishedBlogScore, revokePublishedBlogScore } from "./reputation.service.js";
 import { slugifyTitle } from "./hub.service.js";
-import aiService from "./ai.service.js";
 import aiConfigService from "./ai-config.service.js";
+import aiService from "./ai.service.js";
 
 const EXCERPT_LEN = 180;
 const BLOG_COMMENT_MAX_DEPTH = 4;
@@ -1313,15 +1313,13 @@ export async function createBlogByAI() {
         ${blogPrompt}
     `;
 
-        const AIResult = await aiService.generateGoogleText(prompt);
+        const AIResult = await aiService.generateText(prompt);
         const cleanJson = AIResult.trim()
             .replace(/^```json\n?/, "")
             .replace(/\n?```$/, "")
             .trim();
-
         const data = JSON.parse(cleanJson);
         const { blog, tags } = data;
-        console.log(tags);
 
         // 4. Thực thi Database Transaction
         return await prisma.$transaction(async (tx) => {
@@ -1364,11 +1362,11 @@ export async function createBlogByAI() {
     } catch (error) {
         console.error("Lỗi thực thi CreateBlogByAI:", error);
 
-        // Rollback về PENDING để có thể thử lại
+        // Đánh dấu FAILED để admin dễ theo dõi và xử lý lại thủ công
         if (idea?.id) {
             await prisma.blogIdea.update({
                 where: { id: idea.id },
-                data: { status: "PENDING" },
+                data: { status: "FAILED" },
             });
         }
 

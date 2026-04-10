@@ -2,7 +2,9 @@ import { CheerioCrawler, CheerioRoot } from "crawlee";
 import { LawArticleInsert } from "../../types/crawl.js";
 import { LawParserHelper } from "../../lib/lawParser.js";
 import { getSupabase } from "../../lib/supabase.js";
-import { LocalAiService } from "../localAi.service.js";
+import { queueService } from "../queue.service.js";
+import { AI_EMBEDDING_QUEUE, AI_FEEDBACK_QUEUE } from "../../constants/queue.js";
+import { getPrisma } from "../../lib/prisma.js";
 
 class AdminCrawlService {
     private cleanPage($: CheerioRoot) {
@@ -15,16 +17,14 @@ class AdminCrawlService {
     private async getCrawler(results: LawArticleInsert[]) {
         return new CheerioCrawler({
             requestHandlerTimeoutSecs: 3600,
-            requestHandler: async ({ $, request, log }) => {
+            requestHandler: async ({ $, request }) => {
                 this.cleanPage($);
 
                 const lawTitle = $("h1").text().trim() || "Văn bản pháp luật";
-                const tempArticles: LawArticleInsert[] = [];
                 let currentChapter: string | null = null;
                 let currentArticle: LawArticleInsert | null = null;
                 let skipUntilNextArticle = false;
 
-                // BƯỚC 1: TRÍCH XUẤT TEXT (Giữ nguyên logic của bạn)
                 $(".content1 p, .content1 div").each((_, el) => {
                     const node = $(el);
                     const text = node.text().replace(/\s+/g, " ").trim();
@@ -46,7 +46,7 @@ class AdminCrawlService {
                             skipUntilNextArticle = true;
                             return;
                         }
-                        if (currentArticle) tempArticles.push(currentArticle);
+                        if (currentArticle) results.push(currentArticle);
                         currentArticle = {
                             law_title: lawTitle,
                             chapter: currentChapter,
@@ -54,7 +54,7 @@ class AdminCrawlService {
                             article_number: LawParserHelper.extractArticleNumber(text),
                             content: "",
                             source_url: request.loadedUrl,
-                            embedding: [],
+                            embedding: null, // Để null để worker xử lý sau
                         };
                         skipUntilNextArticle = false;
                         return;
@@ -71,68 +71,60 @@ class AdminCrawlService {
                     }
                 });
 
-                if (currentArticle) tempArticles.push(currentArticle);
-
-                // BƯỚC 2: LỌC DỮ LIỆU SẠCH
-                const finalData = tempArticles.filter(
-                    (item) => item.content.trim().length > 20 && LawParserHelper.hasVietnamese(item.content),
-                );
-
-                // BƯỚC 3: LOCAL EMBEDDING
-                if (finalData.length > 0) {
-                    log.info(`Crawled ${finalData.length} articles. Starting LOCAL Embedding...`);
-
-                    // Gom toàn bộ text cần embed
-                    const allTexts = finalData.map((item) => {
-                        return `${item.law_title} ${item.article_title} ${item.content}`.replace(/\s+/g, " ").trim();
-                    });
-
-                    try {
-                        // Gọi một lần vào Service, để Service tự quản lý việc chia nhỏ hoặc chạy loop
-                        const allEmbeddings = await LocalAiService.generateBatch(allTexts);
-
-                        finalData.forEach((item, idx) => {
-                            item.embedding = allEmbeddings[idx] || [];
-                        });
-
-                        log.info(`✅ Hoàn thành LOCAL embedding cho ${finalData.length} mục.`);
-                    } catch (err) {
-                        log.error(`❌ Lỗi khi tạo embedding: ${err}`);
-                        throw err;
-                    }
-                }
-
-                results.push(...finalData);
+                if (currentArticle) results.push(currentArticle);
             },
-            maxRequestsPerCrawl: 100,
+            maxRequestsPerCrawl: 2, // Bạn nói chỉ cào 1 page mỗi lần
         });
     }
+
     public async crawlAndInsert(page_url: string) {
-        const results: LawArticleInsert[] = [];
-        const crawler = await this.getCrawler(results);
+        const rawResults: LawArticleInsert[] = [];
+
+        const crawler = await this.getCrawler(rawResults);
+
         await crawler.run([page_url]);
 
-        if (results.length === 0) {
-            return { message: "No valid articles found." };
+        if (rawResults.length === 0) {
+            return { message: "No raw articles found.", count: 0 };
         }
+
+        const finalData = rawResults.filter(
+            (item) => item.content.trim().length > 20 && LawParserHelper.hasVietnamese(item.content),
+        );
 
         const supabase = getSupabase();
-        const { data, error } = await supabase
-            .from("law_articles")
-            .upsert(results, {
-                onConflict: "source_url, article_title",
-            })
-            .select("id");
 
-        if (error) {
-            console.error("Supabase error:", error.message);
-            throw error;
+        try {
+            const { data, error } = await supabase
+                .from("law_articles")
+                .upsert(finalData, { onConflict: "source_url, article_title" })
+                .select("id, law_title, article_title, content");
+
+            if (error) {
+                throw error;
+            }
+
+            if (data && data.length > 0) {
+                const prisma = await getPrisma();
+
+                await prisma.queue.createMany({
+                    data: data.map((item) => ({
+                        type: AI_EMBEDDING_QUEUE,
+                        status: "pending",
+                        payload: {
+                            id: item.id,
+                        },
+                    })),
+                });
+            }
+
+            return {
+                message: "Crawl and Insert success!",
+                count: data?.length || 0,
+            };
+        } catch (err) {
+            throw err;
         }
-
-        return {
-            message: "Crawl and Insert success!",
-            count: data?.length || 0,
-        };
     }
 }
 
