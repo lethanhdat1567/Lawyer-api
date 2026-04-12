@@ -1,8 +1,29 @@
-import type { RequestHandler } from "express";
+import type { RequestHandler, Response } from "express";
 import { Readable } from "node:stream";
 import chatSessionsService from "../services/chat-sessions.service.js";
 import chatMessageService from "../services/chat-message.service.js";
 import chatAiService from "../services/chat-ai.service.js";
+
+/** Tells nginx and similar proxies not to buffer the body (keeps token streaming smooth in prod). */
+function applyStreamThroughProxyHeaders(res: Response): void {
+    res.setHeader("X-Accel-Buffering", "no");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+}
+
+function pipeAiTextStream(res: Response, webResponse: globalThis.Response): void {
+    res.status(webResponse.status);
+    webResponse.headers.forEach((value, key) => {
+        res.setHeader(key, value);
+    });
+    applyStreamThroughProxyHeaders(res);
+
+    if (!webResponse.body) {
+        res.end();
+        return;
+    }
+
+    Readable.fromWeb(webResponse.body as any).pipe(res);
+}
 
 class ChatAiController {
     handleChat: RequestHandler = async (req, res, next) => {
@@ -17,18 +38,8 @@ class ChatAiController {
                 const answer = await chatAiService.ask({
                     userQuestion: message.trim(),
                 });
-                const response = answer.toTextStreamResponse();
-
-                res.status(response.status);
-                response.headers.forEach((value, key) => {
-                    res.setHeader(key, value);
-                });
-
-                if (!response.body) {
-                    return res.end();
-                }
-
-                return Readable.fromWeb(response.body as any).pipe(res);
+                pipeAiTextStream(res, answer.toTextStreamResponse());
+                return;
             }
 
             const session = await chatSessionsService.getOwnedSession(sessionId, req.user.id);
@@ -52,18 +63,7 @@ class ChatAiController {
                 userQuestion: message,
             });
 
-            const response = answer.toTextStreamResponse();
-
-            res.status(response.status);
-            response.headers.forEach((value, key) => {
-                res.setHeader(key, value);
-            });
-
-            if (!response.body) {
-                return res.end();
-            }
-
-            return Readable.fromWeb(response.body as any).pipe(res);
+            pipeAiTextStream(res, answer.toTextStreamResponse());
         } catch (error) {
             next(error);
         }
