@@ -4,7 +4,9 @@ import { ErrorCode } from "../constants/errorCodes.js";
 import { HttpStatus } from "../constants/httpStatus.js";
 import { ERROR_MESSAGES } from "../constants/messages.js";
 import { DELTA_BLOG_POST_LIKED } from "../constants/reputation.constants.js";
+import { normalizeTagSlug, parseJsonObject, sanitizeOptionalUrl } from "../lib/aiResponseParse.js";
 import { HttpError } from "../lib/httpError.js";
+import { normalizeBlogBodyHtml } from "../lib/normalizeBlogBodyHtml.js";
 import { getPrisma } from "../lib/prisma.js";
 import { applyReputationDelta, awardPublishedBlogScore, revokePublishedBlogScore } from "./reputation.service.js";
 import { slugifyTitle } from "./hub.service.js";
@@ -223,7 +225,7 @@ function mapPostDetail(p: BlogPostRowDetail): BlogPostDetailDto {
     } as BlogPostRowList;
     return {
         ...mapPostListItem(listRow),
-        body: p.body,
+        body: normalizeBlogBodyHtml(p.body),
         verifiedAt: p.verifiedAt ? toIso(p.verifiedAt) : null,
         verificationNotes: p.verificationNotes ?? null,
         legalCorpusVersion: p.legalCorpusVersion ?? null,
@@ -516,17 +518,18 @@ export async function createBlogPostForUser(
         slug = await allocateUniqueBlogSlug(slugifyTitle(input.title));
     }
 
+    const bodyNorm = normalizeBlogBodyHtml(input.body);
     const excerpt =
         input.excerpt !== undefined && input.excerpt !== null && String(input.excerpt).trim() !== ""
             ? String(input.excerpt).trim()
-            : excerptFromBody(input.body);
+            : excerptFromBody(bodyNorm);
 
     const post = await prisma.blogPost.create({
         data: {
             authorId: userId,
             slug,
             title: input.title,
-            body: input.body,
+            body: bodyNorm,
             excerpt,
             thumbnailUrl:
                 input.thumbnailUrl === undefined || input.thumbnailUrl === null || input.thumbnailUrl === ""
@@ -591,7 +594,7 @@ export async function updateMyBlogPost(
         }
     }
 
-    const nextBody = input.body !== undefined ? input.body : existing.body;
+    const nextBody = input.body !== undefined ? normalizeBlogBodyHtml(input.body) : existing.body;
     const excerpt =
         input.excerpt !== undefined
             ? input.excerpt === null || String(input.excerpt).trim() === ""
@@ -614,7 +617,7 @@ export async function updateMyBlogPost(
         where: { id: postId },
         data: {
             ...(input.title !== undefined ? { title: input.title } : {}),
-            ...(input.body !== undefined ? { body: input.body } : {}),
+            ...(input.body !== undefined ? { body: nextBody } : {}),
             ...(excerpt !== undefined ? { excerpt } : {}),
             ...(input.status !== undefined ? { status: input.status } : {}),
             ...(input.slug?.trim() !== undefined ? { slug: input.slug.trim() } : {}),
@@ -763,17 +766,18 @@ export async function adminCreateBlogPost(input: {
         slug = await allocateUniqueBlogSlug(slugifyTitle(input.title));
     }
 
+    const bodyNorm = normalizeBlogBodyHtml(input.body);
     const excerpt =
         input.excerpt !== undefined && input.excerpt !== null && String(input.excerpt).trim() !== ""
             ? String(input.excerpt).trim()
-            : excerptFromBody(input.body);
+            : excerptFromBody(bodyNorm);
 
     const post = await prisma.blogPost.create({
         data: {
             authorId: input.authorId,
             slug,
             title: input.title,
-            body: input.body,
+            body: bodyNorm,
             excerpt,
             thumbnailUrl:
                 input.thumbnailUrl === undefined || input.thumbnailUrl === null || input.thumbnailUrl === ""
@@ -844,7 +848,7 @@ export async function adminUpdateBlogPost(
         }
     }
 
-    const nextBody = input.body !== undefined ? input.body : existing.body;
+    const nextBody = input.body !== undefined ? normalizeBlogBodyHtml(input.body) : existing.body;
     const excerpt =
         input.excerpt !== undefined
             ? input.excerpt === null || String(input.excerpt).trim() === ""
@@ -868,7 +872,7 @@ export async function adminUpdateBlogPost(
         where: { id: postId },
         data: {
             ...(input.title !== undefined ? { title: input.title } : {}),
-            ...(input.body !== undefined ? { body: input.body } : {}),
+            ...(input.body !== undefined ? { body: nextBody } : {}),
             ...(excerpt !== undefined ? { excerpt } : {}),
             ...(input.status !== undefined ? { status: input.status } : {}),
             ...(input.slug?.trim() !== undefined ? { slug: input.slug.trim() } : {}),
@@ -1242,6 +1246,110 @@ export async function listMySavedBlogPosts(params: {
     };
 }
 
+const THUMBNAIL_URL_MAX = 2048;
+
+type NormalizedBlogAiPayload = {
+    blog: {
+        title: string;
+        slug: string;
+        body: string;
+        excerpt: string | null;
+        thumbnailUrl: string | null;
+    };
+    tags: { slug: string; name: string }[];
+};
+
+/** First tag per slug wins — avoids duplicate (blogPostId, tagId) on BlogPostTag. */
+function dedupeBlogAiTagsBySlug(tags: { slug: string; name: string }[]): { slug: string; name: string }[] {
+    const seen = new Set<string>();
+    const out: { slug: string; name: string }[] = [];
+    for (const t of tags) {
+        if (seen.has(t.slug)) {
+            continue;
+        }
+        seen.add(t.slug);
+        out.push(t);
+    }
+    return out;
+}
+
+function validateBlogAiPayload(
+    data: unknown,
+): { ok: true; value: NormalizedBlogAiPayload } | { ok: false; error: string } {
+    if (data === null || typeof data !== "object") {
+        return { ok: false, error: "Phản hồi AI không phải object JSON." };
+    }
+
+    const root = data as Record<string, unknown>;
+    const blogRaw = root.blog;
+    if (blogRaw === null || typeof blogRaw !== "object" || Array.isArray(blogRaw)) {
+        return { ok: false, error: "Thiếu hoặc sai trường blog trong JSON." };
+    }
+
+    const b = blogRaw as Record<string, unknown>;
+    const title = typeof b.title === "string" ? b.title.trim() : "";
+    const slugIn = typeof b.slug === "string" ? b.slug.trim() : "";
+    const body = typeof b.body === "string" ? b.body.trim() : "";
+
+    if (!title || !body) {
+        return { ok: false, error: "blog.title và blog.body là bắt buộc (chuỗi không rỗng)." };
+    }
+
+    const slugBase = slugIn || title;
+    const slug = slugifyTitle(slugBase);
+    if (!slug) {
+        return { ok: false, error: "Không tạo được slug hợp lệ từ phản hồi AI." };
+    }
+
+    let excerpt: string | null = null;
+    if (typeof b.excerpt === "string") {
+        const e = b.excerpt.trim();
+        excerpt = e.length > 0 ? e : null;
+    }
+
+    const thumbnailUrl = sanitizeOptionalUrl(b.thumbnailUrl, THUMBNAIL_URL_MAX);
+
+    const tagsOut: { slug: string; name: string }[] = [];
+    const tagsRaw = root.tags;
+    if (Array.isArray(tagsRaw)) {
+        for (const item of tagsRaw) {
+            if (item === null || typeof item !== "object" || Array.isArray(item)) {
+                continue;
+            }
+            const t = item as Record<string, unknown>;
+            const name = typeof t.name === "string" ? t.name.trim() : "";
+            const slugFromAi = typeof t.slug === "string" ? t.slug.trim() : "";
+            if (!name) {
+                continue;
+            }
+            const tagSlug = normalizeTagSlug(slugFromAi || name);
+            if (!tagSlug) {
+                continue;
+            }
+            tagsOut.push({ slug: tagSlug, name: name.slice(0, 200) });
+        }
+    }
+
+    return {
+        ok: true,
+        value: {
+            blog: { title, slug, body: normalizeBlogBodyHtml(body), excerpt, thumbnailUrl },
+            tags: dedupeBlogAiTagsBySlug(tagsOut),
+        },
+    };
+}
+
+async function markBlogIdeaFailedSafe(prisma: ReturnType<typeof getPrisma>, ideaId: number): Promise<void> {
+    try {
+        await prisma.blogIdea.update({
+            where: { id: ideaId },
+            data: { status: "FAILED" },
+        });
+    } catch (rollbackError) {
+        console.error("CreateBlogByAI: không cập nhật FAILED cho blogIdea:", rollbackError);
+    }
+}
+
 export async function createBlogByAI() {
     const prisma = getPrisma();
 
@@ -1298,28 +1406,30 @@ export async function createBlogByAI() {
         const existingSlugs = existingPosts.map((p) => p.slug).join(", ");
 
         const blogPrompt = await aiConfigService.getPromptByType("blog");
+        const modalSystem = await prisma.scheduleBlogSystem.findFirst({ select: { model: true } });
 
         const prompt = `
+        ${blogPrompt}
 
-        THÔNG TIN ĐẦU VÀO:
         - Ý tưởng: ${idea.name}
         - Mô tả: ${idea.description}
-        - Danh sách Tags hệ thống (ƯU TIÊN DÙNG): [${tagsFromDb.map((t) => t.name).join(", ")}]
-
-        DANH SÁCH SLUGS ĐÃ TỒN TẠI (KHÔNG DÙNG LẠI):
-        [${existingSlugs}]
-
-
-        ${blogPrompt}
+        - Danh sách tags có sẵn: [${tagsFromDb.map((t) => t.name).join(", ")}]
+        - Danh sách slugs đã tồn tại: [${existingSlugs}]
     `;
 
-        const AIResult = await aiService.generateText(prompt);
-        const cleanJson = AIResult.trim()
-            .replace(/^```json\n?/, "")
-            .replace(/\n?```$/, "")
-            .trim();
-        const data = JSON.parse(cleanJson);
-        const { blog, tags } = data;
+        const AIResult = await aiService.generateText(prompt, modalSystem?.model);
+
+        const parsed = parseJsonObject<unknown>(AIResult);
+        if (!parsed.ok) {
+            throw new Error(parsed.error);
+        }
+
+        const validated = validateBlogAiPayload(parsed.value);
+        if (!validated.ok) {
+            throw new Error(validated.error);
+        }
+
+        const { blog, tags } = validated.value;
 
         // 4. Thực thi Database Transaction
         return await prisma.$transaction(async (tx) => {
@@ -1340,7 +1450,7 @@ export async function createBlogByAI() {
                     verificationNotes: "Verified by AI",
                     legalCorpusVersion: "1.0.0",
                     tags: {
-                        create: tags?.map((t: any) => ({
+                        create: tags.map((t) => ({
                             tag: {
                                 connectOrCreate: {
                                     where: { slug: t.slug },
@@ -1362,12 +1472,8 @@ export async function createBlogByAI() {
     } catch (error) {
         console.error("Lỗi thực thi CreateBlogByAI:", error);
 
-        // Đánh dấu FAILED để admin dễ theo dõi và xử lý lại thủ công
         if (idea?.id) {
-            await prisma.blogIdea.update({
-                where: { id: idea.id },
-                data: { status: "FAILED" },
-            });
+            await markBlogIdeaFailedSafe(prisma, idea.id);
         }
 
         return "Failed to create blog";

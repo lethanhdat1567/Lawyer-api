@@ -4,6 +4,7 @@ import aiService from "./ai.service.js";
 import chatMessageService from "./chat-message.service.js";
 import aiConfigService from "./ai-config.service.js";
 import { embeddingService } from "./embedding.service.js";
+import { getPrisma } from "../lib/prisma.js";
 
 interface AskLawerAiOptions {
     sessionId?: string;
@@ -14,6 +15,7 @@ class ChatAIService {
     private supabase = getSupabase();
 
     async ask({ sessionId, userQuestion }: AskLawerAiOptions): Promise<StreamTextResult<any, any>> {
+        const prisma = getPrisma();
         // 1. Trích xuất số điều từ câu hỏi (Regex)
         const articleMatch = userQuestion.match(/Điều\s+(\d+)/i);
         const articleNumber = articleMatch ? articleMatch[1] : null;
@@ -62,24 +64,18 @@ class ChatAIService {
                 : "KHÔNG TÌM THẤY VĂN BẢN GỐC TRONG CƠ SỞ DỮ LIỆU.";
 
         const advisorPrompt = await aiConfigService.getPromptByType("advisor");
+        const modalSystem = await prisma.scheduleBlogSystem.findFirst({ select: { model: true } });
 
         // 5. System Prompt thông minh hơn
         const systemPrompt = `
             ${advisorPrompt}
-
-            CHỈ THỊ XỬ LÝ DỮ LIỆU:
-            - Nếu [NGUỒN DỮ LIỆU PHÁP LUẬT] có nội dung Điều/Khoản người dùng yêu cầu, hãy trích dẫn và giải thích từ đó.
-            - Nếu [NGUỒN DỮ LIỆU PHÁP LUẬT] không có hoặc trả về nhầm Điều khác, hãy dùng kiến thức chuyên môn của bạn để trả lời Điều người dùng hỏi, nhưng phải ghi chú rõ là "Dựa trên kiến thức pháp luật hiện hành".
-            - Ưu tiên sự chính xác về con số và mốc thời gian.
-
             NGUỒN DỮ LIỆU PHÁP LUẬT:
             ${contextString}
-
             CÂU HỎI CỦA NGƯỜI DÙNG:
             ${userQuestion}
         `;
 
-        const result = await aiService.generateStreamText(systemPrompt, "meta/llama-3.1-8b", async (text: string) => {
+        const result = await aiService.generateStreamText(systemPrompt, modalSystem?.model, async (text: string) => {
             if (sessionId) {
                 await chatMessageService.createMessage(sessionId, text, "assistant");
             }

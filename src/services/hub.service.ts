@@ -144,12 +144,30 @@ function mapCommentRowToDto(c: HubCommentAuthorRow): HubCommentDto {
     };
 }
 
+function normalizeHubFeedbackRawResponse(raw: unknown): string | null {
+    if (raw === null || raw === undefined) {
+        return null;
+    }
+    if (typeof raw === "string") {
+        const t = raw.trim();
+        return t.length > 0 ? t : null;
+    }
+    if (typeof raw === "object" && !Array.isArray(raw)) {
+        const o = raw as Record<string, unknown>;
+        if (o.type === "text" && typeof o.content === "string") {
+            const t = o.content.trim();
+            return t.length > 0 ? t : null;
+        }
+    }
+    return null;
+}
+
 function mapHubFeedback(feedback: HubFeedback | null | undefined): HubAiFeedbackDto | null {
     if (!feedback) return null;
 
     return {
         status: feedback.status,
-        rawResponse: feedback.rawResponse ?? null,
+        rawResponse: normalizeHubFeedbackRawResponse(feedback.rawResponse),
         createdAt: toIso(feedback.createdAt),
         updatedAt: toIso(feedback.updatedAt),
     };

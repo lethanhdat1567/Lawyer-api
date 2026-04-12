@@ -4,6 +4,9 @@ import { getSupabase } from "../lib/supabase.js";
 import { embeddingService } from "./embedding.service.js";
 import aiService from "./ai.service.js";
 
+const HUB_FEEDBACK_CONTENT_MAX = 500_000;
+const HUB_FEEDBACK_FALLBACK = "Không tạo được nội dung phản hồi tự động. Vui lòng thử lại sau hoặc liên hệ hỗ trợ.";
+
 class HubFeedbackService {
     private supabase = getSupabase();
 
@@ -15,13 +18,13 @@ class HubFeedbackService {
         });
     }
 
-    async createFeedback(hubId: string, content?: string) {
-        if (!content) return;
+    async createFeedback(hubId: string, userContent?: string) {
+        if (!userContent) return;
         const prisma = getPrisma();
 
         try {
             // 1. Vectorize nội dung vấn đề của người dùng
-            const queryVector = await embeddingService.generate(content);
+            const queryVector = await embeddingService.generate(userContent);
 
             // 2. Truy vấn các điều luật liên quan từ Database (RAG)
             // Lưu ý: Sử dụng cùng logic match_law_articles như hàm ask
@@ -46,30 +49,33 @@ class HubFeedbackService {
                 ${contextString}
 
                 VẤN ĐỀ CỦA NGƯỜI DÙNG TRÊN DIỄN ĐÀN:
-                "${content}"
-
-                YÊU CẦU:
-                Dựa trên dữ liệu pháp luật trên, hãy đưa ra lời khuyên hữu ích, đồng cảm và đúng luật cho người dùng.
+                "${userContent}"
             `;
 
             const result = await aiService.generateText(fullPrompt);
+            const trimmed = typeof result === "string" ? result.trim() : "";
+            const responseText =
+                trimmed.length > 0 ? trimmed.slice(0, HUB_FEEDBACK_CONTENT_MAX) : HUB_FEEDBACK_FALLBACK;
 
-            // 5. Lưu kết quả vào DB
             await prisma.hubFeedback.create({
                 data: {
                     hubId,
-                    rawResponse: result,
+                    rawResponse: { type: "text", content: responseText },
                     status: "COMPLETED",
                 },
             });
         } catch (error) {
             console.error("Lỗi xử lý AI Feedback:", error);
-            await prisma.hubFeedback.create({
-                data: {
-                    hubId,
-                    status: "FAILED",
-                },
-            });
+            try {
+                await prisma.hubFeedback.create({
+                    data: {
+                        hubId,
+                        status: "FAILED",
+                    },
+                });
+            } catch (persistError) {
+                console.error("HubFeedback: không ghi được trạng thái FAILED:", persistError);
+            }
         }
     }
 }
